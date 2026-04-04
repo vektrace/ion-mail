@@ -6,8 +6,16 @@ mod folder;
 use args::{Cli, Resource, AccountOperation, MailOperation, FolderOperation};
 use clap::Parser;
 
+const APP_NAME: &str = "ion_mail";
+
 fn main() {
     let args = Cli::parse();
+
+    // somewhere load all accounts out of keyring
+    // needs new param for like every function...
+    // but lets worry about that later :)
+    //
+    // uh oh... i think it is time to worry now
 
     match args.resource {
         Resource::Account { operation } => {

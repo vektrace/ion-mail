@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"] }
 dialoguer = "0.12.0"
+email_address = "0.2.9"
+imap = "2.4.1"
+native-tls = "0.2.18"

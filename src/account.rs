@@ -1,9 +1,18 @@
+use crate::{APP_NAME, Config, Account};
+
 use email_address::EmailAddress;
 use dialoguer::{theme::ColorfulTheme, Input, Password};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
+use std::fs;
+use std::process;
+use keyring::Entry;
 
-pub fn add() {
+pub fn add(toml_path: &str, old_config: Config) {
+    if old_config.accounts.len() >= (u32::MAX - 10).try_into().unwrap() {
+        eprintln!("Too many accounts registered, remove some then try again");
+        process::exit(1);
+    }
     let smtp: String = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("SMTP Server")
         .validate_with({
@@ -97,14 +106,14 @@ pub fn add() {
             if imap_port == 143 {
                 let client = imap::connect_starttls((imap.clone(), 143), &imap, &tls).unwrap();
 
-                let imap_session = match client.login(mail.clone(), input) {
+                let _imap_session = match client.login(mail.clone(), input) {
                     Ok(_session) => return Ok(()),
                     Err((e, _unauth_client)) => return Err(format!("Error: {}", e)),
                 };
             } else {
                 let client = imap::connect((imap.clone(), imap_port), &imap, &tls).unwrap();
 
-                let imap_session = match client.login(mail.clone(), input) {
+                let _imap_session = match client.login(mail.clone(), input) {
                     Ok(_session) => return Ok(()),
                     Err((e, _unauth_client)) => return Err(format!("Error: {}", e)),
                 };
@@ -113,23 +122,129 @@ pub fn add() {
         .interact()
         .unwrap();
 
-    println!("smtp server: {}, smtp port: {},  imap server: {}, imap port: {}, mail address: {}, password: {}", smtp, smtp_port, imap, imap_port, mail, password);
+    // the plan here: save password as password to keyring and email and other config to a file
+    // somewhere else
+    // so keyring would look like: <id here>@ion-mail (i think) and password ****
+    
+    let mut new_id: u32 = 0;
+
+    let mut current_active = true;
+    
+    for item in &old_config.accounts {
+        if item.email == mail && item.smtp == smtp && item.smtp_port == smtp_port && item.imap == imap && item.imap_port == imap_port {
+            eprintln!("Account already exists");
+            process::exit(1);
+        }
+        if item.active {
+            current_active = false;
+        }
+        if item.id >= new_id {
+            new_id = item.id + 1;
+            if new_id >= (u32::MAX - 10).try_into().unwrap() {
+                eprintln!("ID to large");
+                process::exit(1);
+            }
+        }
+    }
+
+    let mut _config = Config {
+        accounts: Vec::new(),
+    };
+
+    _config = old_config;
+
+    let new_account = Account {
+        id: new_id,
+        email: mail,
+        active: current_active,
+        smtp: smtp,
+        smtp_port: smtp_port,
+        imap: imap,
+        imap_port: imap_port,
+    };
+
+    _config.accounts.push(new_account);
+
+    let toml_output = toml::to_string(&_config).expect("Something went wrong");
+    fs::write(toml_path, toml_output).expect("Failed to save file");
+
+    let entry = Entry::new(APP_NAME, &new_id.to_string()).unwrap();
+    let _ = entry.set_password(&password);
 }
 
-pub fn list() {
-    todo!("Implement listing all users");
+pub fn list(config: Config) {
+    if config.accounts.len() > 0 {
+        for account in config.accounts {
+            println!("[{id:03}] [{status}] {email}", id=account.id, status=if account.active { "+" } else { "-" }, email=account.email);
+        }
+    } else {
+        println!("No accounts found");
+    }
 }
 
 // not use because rust complained
-pub fn switch(account: String) {
-    todo!("Implement switching to account {}", account);
+pub fn switch(toml_path: &str, config: Config, account: String) {
+    let mut _config = Config {
+        accounts: Vec::new(),
+    };
+
+    if let Ok(id) = account.parse::<u32>() {
+        // loop through all registered, if the current active is found its active flag will be set
+        // to false, if the entered id is found its active flag will be set to true
+        let mut found = false;
+        for mut acc in config.accounts {
+            if acc.active {
+                acc.active = false;
+            }
+            if acc.id == id {
+                acc.active = true;
+                found = true;
+            }
+            _config.accounts.push(acc);
+        }
+        if !found {
+            eprintln!("Account with ID {} could not be found", id);
+            process::exit(1);
+        }
+    } else {
+        // in this case just continue with string
+        let mut found = false;
+        for mut acc in config.accounts {
+            if acc.active {
+                acc.active = false;
+            }
+            if acc.email == account {
+                acc.active = true;
+                found = true;
+            }
+            _config.accounts.push(acc);
+        }
+        if !found {
+            eprintln!("Account with email {} could not be found", account);
+            process::exit(1);
+        }
+    }
+    let toml_output = toml::to_string(&_config).expect("Something went wrong");
+    fs::write(toml_path, toml_output).expect("Failed to save file");
+
+    println!("Successfully switched to account {}", account);
 }
 
-pub fn whoami() {
-    todo!("Implement getting info about current user");
+pub fn whoami(config: Config) {
+    if config.accounts.len() > 0 {
+        for account in config.accounts {
+            if account.active {
+                println!("{id:03} | {email} | {smtp}:{smtp_port} | {imap}:{imap_port}", id=account.id, email=account.email, smtp=account.smtp, smtp_port=account.smtp_port, imap=account.imap, imap_port=account.imap_port);
+                return;
+            }
+        }
+        println!("No account is currently active");
+    } else {
+        println!("No accounts found");
+    }
 }
 
-pub fn edit(account: Option<String>) {
+pub fn edit(toml_path: &str, account: Option<String>) {
     if let Some(account) = account {
         todo!("Implement editing account {}", account);
     } else {
@@ -137,7 +252,7 @@ pub fn edit(account: Option<String>) {
     }
 }
 
-pub fn logout(account: Option<String>) {
+pub fn logout(toml_path: &str, account: Option<String>) {
     if let Some(account) = account {
         todo!("Implement logging out of account {}", account);
     } else {

@@ -1,19 +1,19 @@
-pub fn list(stats: bool) {
+pub fn list(toml_path: &str, stats: bool) {
     todo!("Implement listing all folders");
 }
 
-pub fn view(folder: String, page_size: usize) {
+pub fn view(toml_path: &str, folder: String, page_size: usize) {
     todo!("Implement viewing content of folder {} with {} mails on each page", folder, page_size);
 }
 
-pub fn create(name: String, parents: bool) {
+pub fn create(toml_path: &str, name: String, parents: bool) {
     todo!("Implement creating folder {}", name);
 }
 
-pub fn delete(name: String, recursive: bool) {
+pub fn delete(toml_path: &str, name: String, recursive: bool) {
     todo!("Implement deleting folder {}", name);
 }
 
-pub fn empty(name: String) {
+pub fn empty(toml_path: &str, name: String) {
     todo!("Implement emptying folder {}", name);
 }

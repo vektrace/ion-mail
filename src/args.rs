@@ -52,7 +52,7 @@ pub enum AccountOperation {
     /// Update specific details like the name or server. If no flags are
     /// provided, the currently active account will be edited.
     Edit {
-        /// The ID or email of the account to edit
+        /// The  of the account to edit
         #[arg(short, long)]
         account: Option<String>,
     },

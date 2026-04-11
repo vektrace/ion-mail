@@ -252,10 +252,61 @@ pub fn edit(toml_path: &str, account: Option<String>) {
     }
 }
 
-pub fn logout(toml_path: &str, account: Option<String>) {
+pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
+    let mut config = Config {
+        accounts: Vec::new(),
+    };
+
+    let mut found = false;
     if let Some(account) = account {
-        todo!("Implement logging out of account {}", account);
+        if let Ok(id) = account.parse::<u32>() {
+            for acc in old_config.accounts {
+                if acc.id == id {
+                    found = true;
+                    let entry = Entry::new(APP_NAME, &id.to_string()).unwrap();
+                    let _ = entry.delete_credential();
+                } else {
+                    config.accounts.push(acc);
+                }
+            }
+        } else {
+            for acc in old_config.accounts {
+                if acc.email == account {
+                    found = true;
+                    let entry = Entry::new(APP_NAME, &acc.id.to_string()).unwrap();
+                    let _ = entry.delete_credential();
+                } else {
+                    config.accounts.push(acc);
+                }
+            }
+        } 
     } else {
-        todo!("Implement logging out of current account");
+        // shift active to some other
+        // or easier:
+        // user has to switch manually
+        for acc in old_config.accounts {
+            if acc.active {
+                found = true;
+                let entry = Entry::new(APP_NAME, &acc.id.to_string()).unwrap();
+                let _ = entry.delete_credential();
+            } else {
+                config.accounts.push(acc);
+            }
+        }
+        // shift active to first account (because what else should i do, predict what account the
+        // user wants?)
+        if config.accounts.len() > 0 {
+            config.accounts[0].active = true;
+        }
+
+        if !found {
+            println!("No account is currently active");
+        }
+    }
+
+    if found {
+        let toml_output = toml::to_string(&config).expect("Something went wrong");
+        fs::write(toml_path, toml_output).expect("Failed to save file");
+        println!("Logout successful");
     }
 }

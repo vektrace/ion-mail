@@ -62,7 +62,7 @@ pub enum AccountOperation {
     /// This action is IRREVERSIBLE and does not delete the actual
     /// mail on the server.
     Logout {
-        /// The account to log out of (defaults to the currently active account)
+        /// The account ID or email to log out of (defaults to the currently active account)
         #[arg(short, long)]
         account: Option<String>,
     },

@@ -245,13 +245,11 @@ pub fn whoami(config: Config) {
 }
 
 pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
-    let items = vec!["Email", "SMTP", "IMAP", "Password", "Save & Exit", "Save", "Exit"];
+    let items = vec!["Email", "Password", "SMTP", "IMAP", "Save & Exit", "Save", "Exit"];
 
     let mut config = Config {
         accounts: Vec::new(),
     };
-
-    let id: u32 = 0;
 
     let mut found = false;
 
@@ -311,6 +309,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
         }
     }
 
+    let entry = Entry::new(APP_NAME, &account_edit.id.to_string()).unwrap();
+    let mut password = entry.get_password().unwrap();
+
     loop {
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Select element to edit")
@@ -335,7 +336,30 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     .interact_text()
                     .unwrap();
             },
-            1 => {},
+            1 => {
+                password = Password::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Password")
+                    .validate_with(|input: &String| -> Result<(), String> {
+                        let tls = native_tls::TlsConnector::builder().build().unwrap();
+                        if account_edit.imap_port == 143 {
+                            let client = imap::connect_starttls((account_edit.imap.clone(), 143), &account_edit.imap, &tls).unwrap();
+
+                            let _imap_session = match client.login(account_edit.email.clone(), input) {
+                                Ok(_session) => return Ok(()),
+                                Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
+                            };
+                        } else {
+                            let client = imap::connect((account_edit.imap.clone(), account_edit.imap_port), &account_edit.imap, &tls).unwrap();
+
+                            let _imap_session = match client.login(account_edit.email.clone(), input) {
+                                Ok(_session) => return Ok(()),
+                                Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
+                            };
+                        }
+                    })
+                    .interact()
+                    .unwrap();
+            },
             2 => {
                 account_edit.smtp = Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("SMTP Server")
@@ -420,6 +444,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                 config.accounts.push(account_edit.clone());
                 let toml_output = toml::to_string(&config).expect("Something went wrong");
                 fs::write(toml_path, toml_output).expect("Failed to save file");
+                let _ = entry.set_password(&password.as_str());
             },
             _ => {
                 if Confirm::with_theme(&ColorfulTheme::default())

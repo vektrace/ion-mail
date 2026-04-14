@@ -1,7 +1,7 @@
 use crate::{APP_NAME, Config, Account};
 
 use email_address::EmailAddress;
-use dialoguer::{theme::ColorfulTheme, Input, Password};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 use std::fs;
@@ -244,11 +244,196 @@ pub fn whoami(config: Config) {
     }
 }
 
-pub fn edit(toml_path: &str, account: Option<String>) {
-    if let Some(account) = account {
-        todo!("Implement editing account {}", account);
+pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
+    let items = vec!["Email", "SMTP", "IMAP", "Password", "Save & Exit", "Save", "Exit"];
+
+    let mut config = Config {
+        accounts: Vec::new(),
+    };
+
+    let id: u32 = 0;
+
+    let mut found = false;
+
+    let mut account_edit = Account {
+        id: 0,
+        email: "".to_string(),
+        active: false,
+        smtp: "".to_string(),
+        smtp_port: 0,
+        imap: "".to_string(),
+        imap_port: 0,
+    };
+
+    if let Some(ref account) = account {
+        if let Ok(id) = account.parse::<u32>() {
+            for acc in old_config.accounts {
+                if acc.id != id {
+                    config.accounts.push(acc);
+                } else {
+                    account_edit = acc;
+                    found = true;
+                }
+            }
+
+            if !found {
+                println!("Account with ID {} could not be found", id);
+                process::exit(1);
+            }
+        } else {
+            for acc in old_config.accounts {
+                if acc.email != *account {
+                    config.accounts.push(acc);
+                } else {
+                    account_edit = acc;
+                    found = true;
+                }
+            }
+
+            if !found {
+                println!("Account with email {} could not be found", account);
+                process::exit(1);
+            }
+        }
     } else {
-        todo!("Implement editing current account");
+        for acc in old_config.accounts {
+            if !acc.active {
+                config.accounts.push(acc);
+            } else {
+                account_edit = acc;
+                found = true;
+            }
+        }
+
+        if !found {
+            println!("No account is currently active");
+            process::exit(1);
+        }
+    }
+
+    loop {
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Select element to edit")
+            .default(0)
+            .items(&items)
+            .interact()
+            .unwrap();
+
+        match selection {
+            0 => {
+                account_edit.email = Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Email")
+                    .validate_with({
+                        move |input: &String| -> Result<(), &str> {
+                            if EmailAddress::is_valid(input) {
+                                Ok(())
+                            } else {
+                                Err("Invalid email address")
+                            }
+                        }
+                    })
+                    .interact_text()
+                    .unwrap();
+            },
+            1 => {},
+            2 => {
+                account_edit.smtp = Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("SMTP Server")
+                    .validate_with({
+                        move |input: &String| -> Result<(), &str> {
+                            let target = format!("{}:0", input);
+
+                            match target.to_socket_addrs() {
+                                Ok(_) => return Ok(()),
+                                Err(_) => Err("Hostname could not be resolved"),
+                            }
+                        }
+                    })
+                    .interact_text()
+                    .unwrap();
+
+                let smtp_value = account_edit.smtp.clone();
+                account_edit.smtp_port = Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("SMTP Port")
+                    .with_initial_text("587")
+                    .validate_with({
+                        move |input: &u16| -> Result<(), String> {
+                            let target = format!("{}:{}", smtp_value, input);
+
+                            if let Ok(mut addrs) = target.to_socket_addrs() {
+                                if let Some(address) = addrs.next() {
+                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok() {
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            Err(format!("Could not connect to port {}", input))
+                        }
+                    })
+                    .interact_text()
+                    .unwrap();
+            },
+            3 => {
+                account_edit.imap = Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("IMAP Server")
+                    .validate_with({
+                        move |input: &String| -> Result<(), &str> {
+                            let target = format!("{}:0", input);
+
+                            match target.to_socket_addrs() {
+                                Ok(_) => return Ok(()),
+                                Err(_) => Err("Hostname could not be resolved"),
+                            }
+                        }
+                    })
+                    .interact_text()
+                    .unwrap();
+
+                let imap_value = account_edit.imap.clone();
+                account_edit.imap_port = Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("IMAP Port")
+                    .with_initial_text("993")
+                    .validate_with({
+                        move |input: &u16| -> Result<(), String> {
+                            let target = format!("{}:{}", imap_value, input);
+
+                            if let Ok(mut addrs) = target.to_socket_addrs() {
+                                if let Some(address) = addrs.next() {
+                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok() {
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            Err(format!("Could not connect to port {}", input))
+                        }
+                    })
+                    .interact_text()
+                    .unwrap();
+            },
+            4 => {
+                config.accounts.push(account_edit);
+                let toml_output = toml::to_string(&config).expect("Something went wrong");
+                fs::write(toml_path, toml_output).expect("Failed to save file");
+                break;
+            },
+            5 => {
+                config.accounts.push(account_edit.clone());
+                let toml_output = toml::to_string(&config).expect("Something went wrong");
+                fs::write(toml_path, toml_output).expect("Failed to save file");
+            },
+            _ => {
+                if Confirm::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Are you sure you want to exit?")
+                    .default(true)
+                    .show_default(true)
+                    .wait_for_newline(true)
+                    .interact()
+                    .unwrap()
+                {
+                    break;
+                }
+            },
+        }
     }
 }
 

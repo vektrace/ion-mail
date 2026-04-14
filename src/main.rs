@@ -16,7 +16,7 @@ pub struct Config {
     pub accounts: Vec<Account>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Account {
     pub id: u32, // just in case someone wants to have 4 bil accounts
     pub email: String,
@@ -70,7 +70,7 @@ fn main() {
                 AccountOperation::Whoami => account::whoami(config),
                 // reminder: since account is optional, in the edit function i have to do:
                 // if let Some(account) = account {
-                AccountOperation::Edit { account } => account::edit(toml_path, account),
+                AccountOperation::Edit { account } => account::edit(toml_path, config, account),
                 AccountOperation::Logout { account } => account::logout(toml_path, config, account),
             }
         },

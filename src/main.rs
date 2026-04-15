@@ -86,11 +86,11 @@ fn main() {
         },
         Resource::Folder { operation } => {
             match operation {
-                FolderOperation::List { stats } => folder::list(toml_path, stats),
-                FolderOperation::View { folder, page_size } => folder::view(toml_path, folder, page_size),
-                FolderOperation::Create { name, parents } => folder::create(toml_path, name, parents),
-                FolderOperation::Delete { name, recursive } => folder::delete(toml_path, name, recursive),
-                FolderOperation::Empty { name } => folder::empty(toml_path, name),
+                FolderOperation::List { stats } => folder::list(config, stats),
+                FolderOperation::View { folder, page_size } => folder::view(config, folder, page_size),
+                FolderOperation::Create { name, parents } => folder::create(config, name, parents),
+                FolderOperation::Delete { name, recursive } => folder::delete(config, name, recursive),
+                FolderOperation::Empty { name } => folder::empty(config, name),
             }
         },
     }

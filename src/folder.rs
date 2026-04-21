@@ -4,7 +4,7 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Select, MultiSelect};
 use std::process;
 use keyring::Entry;
 
-pub fn list(config: Config, stats: bool) {
+fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::TcpStream>> {
     let mut found = false;
 
     let mut use_account = Account {
@@ -23,7 +23,7 @@ pub fn list(config: Config, stats: bool) {
             use_account = account;
         }
     }
-    
+
     if !found {
         println!("No account is currently active");
         process::exit(0);
@@ -33,16 +33,20 @@ pub fn list(config: Config, stats: bool) {
     let password = entry.get_password().unwrap();
 
     let tls = native_tls::TlsConnector::builder().build().unwrap();
-    
+
     let client = if use_account.imap_port != 143 {
         imap::connect((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
     } else {
-        imap::connect_starttls((use_account.imap.clone(), 143), &use_account.imap, &tls).unwrap()
+        imap::connect_starttls((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
     };
 
-    let mut imap_session = client
+    client
         .login(use_account.email, password)
-        .expect("Login failed");
+        .expect("Login failed")
+}
+
+pub fn list(config: Config, stats: bool) {
+    let mut imap_session = auth(config);
 
     let mailboxes = imap_session.list(None, Some("*")).unwrap();
 
@@ -72,44 +76,7 @@ pub fn view(config: Config, folder: String, page_size: usize) {
 }
 
 pub fn create(config: Config, name: String, parents: bool) {
-    let mut found = false;
-
-    let mut use_account = Account {
-        id: 0,
-        active: false,
-        email: "".to_string(),
-        smtp: "".to_string(),
-        smtp_port: 0,
-        imap: "".to_string(),
-        imap_port: 0,
-    };
-
-    for account in config.accounts {
-        if account.active {
-            found = true;
-            use_account = account;
-        }
-    }
-
-    if !found {
-        println!("No account is currently active");
-        process::exit(0);
-    }
-
-    let entry = Entry::new(APP_NAME, &use_account.id.to_string()).unwrap();
-    let password = entry.get_password().unwrap();
-
-    let tls = native_tls::TlsConnector::builder().build().unwrap();
-
-    let client = if use_account.imap_port != 143 {
-        imap::connect((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
-    } else {
-        imap::connect_starttls((use_account.imap.clone(), 143), &use_account.imap, &tls).unwrap()
-    };
-
-    let mut imap_session = client
-        .login(use_account.email, password)
-        .expect("Login failed");
+    let mut imap_session = auth(config);
 
     let mailboxes = imap_session
         .list(None, Some("*"))
@@ -121,7 +88,7 @@ pub fn create(config: Config, name: String, parents: bool) {
 
     if parents {
         let folders = name.split(delimiter);
-        
+
         let mut current_folder = String::new();
 
         for folder in folders {
@@ -147,7 +114,46 @@ pub fn create(config: Config, name: String, parents: bool) {
 }
 
 pub fn delete(config: Config, name: String, recursive: bool) {
-    todo!("Implement deleting folder {}", name);
+    let mut imap_session = auth(config);
+
+    if recursive {
+        let mailboxes = imap_session
+            .list(None, Some("*"))
+            .unwrap();
+
+        let mut del_mailboxes = Vec::new();
+
+        let search = format!("{}/", name);
+
+        for mailbox in mailboxes.iter() {
+            if mailbox.name() == name {
+                del_mailboxes.push(mailbox);
+            }
+            if mailbox.name().starts_with(&search) {
+                del_mailboxes.push(mailbox);
+            }
+        }
+
+        del_mailboxes.sort_by_key(|k| k.name().to_string().len());
+        del_mailboxes.reverse();
+
+        for mailbox in del_mailboxes {
+            if !mailbox.attributes().contains(&imap::types::NameAttribute::NoSelect) {
+                if let Err(_) = imap_session.delete(&mailbox.name()) {
+                    eprintln!("Failed to delete folder {}", mailbox.name());
+                }
+            }
+        }
+        println!("Successfully deleted folder {}", name);
+    } else {
+        if let Err(_) = imap_session.delete(&name) {
+            eprintln!("Failed to delete folder {}", name);
+        } else {
+            println!("Successfully deleted folder {}", name);
+        }
+    }
+
+    let _ = imap_session.logout();
 }
 
 pub fn empty(config: Config, name: String) {

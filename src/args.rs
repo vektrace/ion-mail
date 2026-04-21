@@ -221,10 +221,13 @@ pub enum FolderOperation {
     /// This cannot be undone.
     Delete {
         /// The name of the folder to delete
-        name: String,
+        name: Vec<String>,
         /// Delete the folder even if it contains subfolders
         #[arg(short, long)]
         recursive: bool,
+        /// Skip the confirmation
+        #[arg(short, long)]
+        yes: bool,
     },
     /// Delete all messages within a specific folder
     ///

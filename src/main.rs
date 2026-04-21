@@ -89,7 +89,7 @@ fn main() {
                 FolderOperation::List { stats } => folder::list(config, stats),
                 FolderOperation::View { folder, page_size } => folder::view(config, folder, page_size),
                 FolderOperation::Create { name, parents } => folder::create(config, name, parents),
-                FolderOperation::Delete { name, recursive } => folder::delete(config, name, recursive),
+                FolderOperation::Delete { name, recursive, yes } => folder::delete(config, name, recursive, yes),
                 FolderOperation::Empty { name } => folder::empty(config, name),
             }
         },

@@ -1,8 +1,9 @@
 use crate::{APP_NAME, Config, Account};
 
-use dialoguer::{theme::ColorfulTheme, Confirm, Select, MultiSelect};
+use dialoguer::{theme::ColorfulTheme, Confirm, Select};
 use std::process;
 use keyring::Entry;
+use chrono::{Local, DateTime};
 
 fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::TcpStream>> {
     let mut found = false;
@@ -72,7 +73,51 @@ pub fn list(config: Config, stats: bool) {
 }
 
 pub fn view(config: Config, folder: String, page_size: usize) {
-    todo!("Implement viewing content of folder {} with {} mails on each page", folder, page_size);
+    let mut imap_session = auth(config);
+
+    let _ = imap_session.select(folder);
+
+    let mails = imap_session.fetch("1:*", "(BODY[HEADER])").unwrap();
+
+    let mut current_id = 0;
+
+    let mut messages: Vec<String> = Vec::new();
+
+    for mail in mails.iter().rev() {
+        if let Some(header_bytes) = mail.header() {
+            let (parsed_headers, _) = mailparse::parse_headers(header_bytes).unwrap();
+
+            let mut subject = String::new();
+            let mut from = String::new();
+            let mut date = String::new();
+
+            for header in parsed_headers {
+                let key = header.get_key().to_lowercase();
+                let value = header.get_value();
+
+                match key.as_str() {
+                    "subject" => subject = value,
+                    "from" => from = value,
+                    "date" => date = value,
+                    _ => {}
+                }
+            }
+
+            let parsed_date = DateTime::parse_from_rfc2822(&date).unwrap().with_timezone(&Local);
+
+            messages.push(format!("[{:03}] {} | {} | {}", current_id, subject, from, parsed_date.format("%Y-%m-%d %I:%M:%S %p")));
+
+            current_id += 1;
+        }
+    }
+
+    let _ = Select::with_theme(&ColorfulTheme::default())
+        .default(0)
+        .items(&messages)
+        .max_length(page_size)
+        .interact_opt();
+
+    let _ = imap_session.logout();
 }
 
 pub fn create(config: Config, name: String, parents: bool) {
@@ -174,5 +219,25 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
 }
 
 pub fn empty(config: Config, name: String) {
-    todo!("Implement emptying folder {}", name);
+    let mut imap_session = auth(config);
+
+    let _ = imap_session.select(&name);
+
+    let search_results = imap_session.uid_search("ALL").unwrap();
+
+    if !search_results.is_empty() {
+        let uid_list: Vec<String> = search_results.iter().map(|id| id.to_string()).collect();
+        let uid_set = uid_list.join(",");
+
+        imap_session.uid_store(uid_set, "+FLAGS.SILENT (\\Deleted)").expect("Emptying failed");
+        imap_session.expunge().expect("Emptying failed");
+
+        println!("Folder {} emptied", name);
+    } else {
+        println!("Folder {} is already empty", name);
+    }
+
+    let _ = imap_session.noop();
+
+    let _ = imap_session.logout();
 }

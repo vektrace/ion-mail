@@ -1,50 +1,7 @@
-use crate::{APP_NAME, Config, Account};
+use crate::{Config, account::auth, mail::read};
 
 use dialoguer::{theme::ColorfulTheme, Confirm, Select};
-use std::process;
-use keyring::Entry;
 use chrono::{Local, DateTime};
-
-fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::TcpStream>> {
-    let mut found = false;
-
-    let mut use_account = Account {
-        id: 0,
-        active: false,
-        email: "".to_string(),
-        smtp: "".to_string(),
-        smtp_port: 0,
-        imap: "".to_string(),
-        imap_port: 0,
-    };
-
-    for account in config.accounts {
-        if account.active {
-            found = true;
-            use_account = account;
-        }
-    }
-
-    if !found {
-        println!("No account is currently active");
-        process::exit(0);
-    }
-
-    let entry = Entry::new(APP_NAME, &use_account.id.to_string()).unwrap();
-    let password = entry.get_password().unwrap();
-
-    let tls = native_tls::TlsConnector::builder().build().unwrap();
-
-    let client = if use_account.imap_port != 143 {
-        imap::connect((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
-    } else {
-        imap::connect_starttls((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
-    };
-
-    client
-        .login(use_account.email, password)
-        .expect("Login failed")
-}
 
 pub fn list(config: Config, stats: bool) {
     let mut imap_session = auth(config);
@@ -73,11 +30,11 @@ pub fn list(config: Config, stats: bool) {
 }
 
 pub fn view(config: Config, folder: String, page_size: usize) {
-    let mut imap_session = auth(config);
+    let mut imap_session = auth(config.clone());
 
-    let _ = imap_session.select(folder);
+    let _ = imap_session.select(&folder);
 
-    let mails = imap_session.fetch("1:*", "(BODY[HEADER])").unwrap();
+    let mails = imap_session.fetch("1:*", "(BODY.PEEK[HEADER])").unwrap();
 
     let mut current_id = 0;
 
@@ -111,13 +68,18 @@ pub fn view(config: Config, folder: String, page_size: usize) {
         }
     }
 
-    let _ = Select::with_theme(&ColorfulTheme::default())
+    let _ = imap_session.logout();
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
         .default(0)
         .items(&messages)
         .max_length(page_size)
-        .interact_opt();
+        .interact_opt()
+        .unwrap();
 
-    let _ = imap_session.logout();
+    if let Some(selection) = selection {
+        read(config, folder, selection.try_into().unwrap());
+    }
 }
 
 pub fn create(config: Config, name: String, parents: bool) {

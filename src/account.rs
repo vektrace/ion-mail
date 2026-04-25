@@ -8,6 +8,47 @@ use std::fs;
 use std::process;
 use keyring::Entry;
 
+pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::TcpStream>> {
+    let mut found = false;
+
+    let mut use_account = Account {
+        id: 0,
+        active: false,
+        email: "".to_string(),
+        smtp: "".to_string(),
+        smtp_port: 0,
+        imap: "".to_string(),
+        imap_port: 0,
+    };
+
+    for account in config.accounts {
+        if account.active {
+            found = true;
+            use_account = account;
+        }
+    }
+
+    if !found {
+        println!("No account is currently active");
+        process::exit(0);
+    }
+
+    let entry = Entry::new(APP_NAME, &use_account.id.to_string()).unwrap();
+    let password = entry.get_password().unwrap();
+
+    let tls = native_tls::TlsConnector::builder().build().unwrap();
+
+    let client = if use_account.imap_port != 143 {
+        imap::connect((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
+    } else {
+        imap::connect_starttls((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
+    };
+
+    client
+        .login(use_account.email, password)
+        .expect("Login failed")
+}
+
 pub fn add(toml_path: &str, old_config: Config) {
     if old_config.accounts.len() >= (u32::MAX - 10).try_into().unwrap() {
         eprintln!("Too many accounts registered, remove some then try again");
@@ -25,7 +66,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 }
             }
         })
-        .interact_text()
+    .interact_text()
         .unwrap();
 
     let smtp_value = smtp.clone();
@@ -46,7 +87,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 Err(format!("Could not connect to port {}", input))
             }
         })
-        .interact_text()
+    .interact_text()
         .unwrap();
 
     let imap: String = Input::with_theme(&ColorfulTheme::default())
@@ -61,7 +102,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 }
             }
         })
-        .interact_text()
+    .interact_text()
         .unwrap();
 
     let imap_value = imap.clone();
@@ -82,7 +123,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 Err(format!("Could not connect to port {}", input))
             }
         })
-        .interact_text()
+    .interact_text()
         .unwrap();
 
     let mail: String = Input::with_theme(&ColorfulTheme::default())
@@ -96,7 +137,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 }
             }
         })
-        .interact_text()
+    .interact_text()
         .unwrap();
 
     let password = Password::with_theme(&ColorfulTheme::default())
@@ -119,17 +160,17 @@ pub fn add(toml_path: &str, old_config: Config) {
                 };
             }
         })
-        .interact()
+    .interact()
         .unwrap();
 
     // the plan here: save password as password to keyring and email and other config to a file
     // somewhere else
     // so keyring would look like: <id here>@ion-mail (i think) and password ****
-    
+
     let mut new_id: u32 = 0;
 
     let mut current_active = true;
-    
+
     for item in &old_config.accounts {
         if item.email == mail && item.smtp == smtp && item.smtp_port == smtp_port && item.imap == imap && item.imap_port == imap_port {
             eprintln!("Account already exists");
@@ -333,9 +374,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             }
                         }
                     })
-                    .interact_text()
+                .interact_text()
                     .unwrap();
-            },
+                },
             1 => {
                 password = Password::with_theme(&ColorfulTheme::default())
                     .with_prompt("Password")
@@ -357,9 +398,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             };
                         }
                     })
-                    .interact()
+                .interact()
                     .unwrap();
-            },
+                },
             2 => {
                 account_edit.smtp = Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("SMTP Server")
@@ -373,7 +414,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             }
                         }
                     })
-                    .interact_text()
+                .interact_text()
                     .unwrap();
 
                 let smtp_value = account_edit.smtp.clone();
@@ -394,9 +435,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             Err(format!("Could not connect to port {}", input))
                         }
                     })
-                    .interact_text()
+                .interact_text()
                     .unwrap();
-            },
+                },
             3 => {
                 account_edit.imap = Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("IMAP Server")
@@ -410,7 +451,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             }
                         }
                     })
-                    .interact_text()
+                .interact_text()
                     .unwrap();
 
                 let imap_value = account_edit.imap.clone();
@@ -431,9 +472,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             Err(format!("Could not connect to port {}", input))
                         }
                     })
-                    .interact_text()
+                .interact_text()
                     .unwrap();
-            },
+                },
             4 => {
                 config.accounts.push(account_edit);
                 let toml_output = toml::to_string(&config).expect("Something went wrong");
@@ -449,11 +490,11 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
             _ => {
                 if Confirm::with_theme(&ColorfulTheme::default())
                     .with_prompt("Are you sure you want to exit?")
-                    .default(true)
-                    .show_default(true)
-                    .wait_for_newline(true)
-                    .interact()
-                    .unwrap()
+                        .default(true)
+                        .show_default(true)
+                        .wait_for_newline(true)
+                        .interact()
+                        .unwrap()
                 {
                     break;
                 }

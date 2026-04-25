@@ -91,27 +91,13 @@ pub enum MailOperation {
         #[arg(short, long)]
         yes: bool,
     },
-    /// List recent messages from the inbox
-    ///
-    /// Fetches a summary of recent emails. Displays the sender,
-    /// subject and received date for each message.
-    #[command(alias = "ls")]
-    List {
-        /// Maximum number of messages to display
-        #[arg(short, long, default_value_t = 10)]
-        limit: usize,
-        /// Only show unread messages
-        #[arg(short, long)]
-        unread: bool,
-        /// Output the list as JSON for scripting/piping
-        #[arg(long)]
-        json: bool,
-    },
     /// View the full content of a specific email
     ///
     /// This command fetches the entire message (sender, subject, body) from
     /// the server using the index number provided by the 'mail list' command.
     Read {
+        /// The folder where the email is located
+        folder: String,
         /// The index number shown next to the email in 'mail list'
         id: u32,
     },

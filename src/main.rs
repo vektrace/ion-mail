@@ -11,7 +11,7 @@ use std::process;
 
 pub const APP_NAME: &str = "ion_mail";
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub accounts: Vec<Account>,
 }
@@ -33,7 +33,7 @@ fn main() {
     // but lets worry about that later :)
     //
     // uh oh... i think it is time to worry now
-    
+
     let toml_p = dirs::home_dir()
         .ok_or_else(|| {eprintln!("Could not find home directory"); process::exit(1)});
 
@@ -73,25 +73,24 @@ fn main() {
                 AccountOperation::Edit { account } => account::edit(toml_path, config, account),
                 AccountOperation::Logout { account } => account::logout(toml_path, config, account),
             }
-        },
-        Resource::Mail { operation } => {
-            match operation {
-                MailOperation::Send { to, subject, body, attachments, yes } => mail::send(toml_path, to, subject, body, attachments, yes),
-                MailOperation::List { limit, unread, json } => mail::list(toml_path, limit, unread, json),
-                MailOperation::Read { id } => mail::read(toml_path, id),
-                MailOperation::Search { query, folder, since } => mail::search(toml_path, query, folder, since),
-                MailOperation::Move { id, from, to } => mail::mv(toml_path, id, from, to),
-                MailOperation::Draft { to, subject, body, attachments } => mail::draft(toml_path, to, subject, body, attachments),
-            }
-        },
-        Resource::Folder { operation } => {
-            match operation {
-                FolderOperation::List { stats } => folder::list(config, stats),
-                FolderOperation::View { folder, page_size } => folder::view(config, folder, page_size),
-                FolderOperation::Create { name, parents } => folder::create(config, name, parents),
-                FolderOperation::Delete { name, recursive, yes } => folder::delete(config, name, recursive, yes),
-                FolderOperation::Empty { name } => folder::empty(config, name),
-            }
-        },
+            },
+            Resource::Mail { operation } => {
+                match operation {
+                    MailOperation::Send { to, subject, body, attachments, yes } => mail::send(config, to, subject, body, attachments, yes),
+                    MailOperation::Read { folder, id } => mail::read(config, folder, id),
+                    MailOperation::Search { query, folder, since } => mail::search(config, query, folder, since),
+                    MailOperation::Move { id, from, to } => mail::mv(config, id, from, to),
+                    MailOperation::Draft { to, subject, body, attachments } => mail::draft(config, to, subject, body, attachments),
+                }
+            },
+            Resource::Folder { operation } => {
+                match operation {
+                    FolderOperation::List { stats } => folder::list(config, stats),
+                    FolderOperation::View { folder, page_size } => folder::view(config, folder, page_size),
+                    FolderOperation::Create { name, parents } => folder::create(config, name, parents),
+                    FolderOperation::Delete { name, recursive, yes } => folder::delete(config, name, recursive, yes),
+                    FolderOperation::Empty { name } => folder::empty(config, name),
+                }
+            },
+        }
     }
-}

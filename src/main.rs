@@ -1,11 +1,11 @@
-mod args;
 mod account;
-mod mail;
+mod args;
 mod folder;
+mod mail;
 
-use args::{Cli, Resource, AccountOperation, MailOperation, FolderOperation};
-use serde::{Serialize, Deserialize};
+use args::{AccountOperation, Cli, FolderOperation, MailOperation, Resource};
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::process;
 
@@ -28,14 +28,10 @@ pub struct Account {
 }
 
 fn main() {
-    // somewhere load all accounts out of keyring
-    // needs new param for like every function...
-    // but lets worry about that later :)
-    //
-    // uh oh... i think it is time to worry now
-
-    let toml_p = dirs::home_dir()
-        .ok_or_else(|| {eprintln!("Could not find home directory"); process::exit(1)});
+    let toml_p = dirs::home_dir().ok_or_else(|| {
+        eprintln!("Could not find home directory");
+        process::exit(1)
+    });
 
     let mut toml_path_unwrap = toml_p.unwrap();
 
@@ -66,31 +62,52 @@ fn main() {
             match operation {
                 AccountOperation::Add => account::add(toml_path, config),
                 AccountOperation::List => account::list(config),
-                AccountOperation::Use {account} => account::switch(toml_path, config, account),
+                AccountOperation::Use { account } => account::switch(toml_path, config, account),
                 AccountOperation::Whoami => account::whoami(config),
                 // reminder: since account is optional, in the edit function i have to do:
                 // if let Some(account) = account {
                 AccountOperation::Edit { account } => account::edit(toml_path, config, account),
                 AccountOperation::Logout { account } => account::logout(toml_path, config, account),
             }
-            },
-            Resource::Mail { operation } => {
-                match operation {
-                    MailOperation::Send { to, subject, body, attachments, yes } => mail::send(config, to, subject, body, attachments, yes),
-                    MailOperation::Read { folder, id } => mail::read(config, folder, id),
-                    MailOperation::Search { query, folder, since } => mail::search(config, query, folder, since),
-                    MailOperation::Move { id, from, to } => mail::mv(config, id, from, to),
-                    MailOperation::Draft { to, subject, body, attachments } => mail::draft(config, to, subject, body, attachments),
-                }
-            },
-            Resource::Folder { operation } => {
-                match operation {
-                    FolderOperation::List { stats } => folder::list(config, stats),
-                    FolderOperation::View { folder, page_size } => folder::view(config, folder, page_size),
-                    FolderOperation::Create { name, parents } => folder::create(config, name, parents),
-                    FolderOperation::Delete { name, recursive, yes } => folder::delete(config, name, recursive, yes),
-                    FolderOperation::Empty { name } => folder::empty(config, name),
-                }
-            },
         }
+        Resource::Mail { operation } => match operation {
+            MailOperation::Send {
+                to,
+                subject,
+                body,
+                attachments,
+                yes,
+            } => mail::send(config, to, subject, body, attachments, yes),
+            MailOperation::Read { folder, id } => mail::read(config, folder, id),
+            MailOperation::Download {
+                folder,
+                id,
+                attachment_id,
+                save_folder,
+            } => mail::download(config, folder, id, attachment_id, save_folder),
+            MailOperation::Search {
+                query,
+                folder,
+                since,
+            } => mail::search(config, query, folder, since),
+            MailOperation::Move { id, from, to } => mail::mv(config, id, from, to),
+            MailOperation::Draft {
+                to,
+                subject,
+                body,
+                attachments,
+            } => mail::draft(config, to, subject, body, attachments),
+        },
+        Resource::Folder { operation } => match operation {
+            FolderOperation::List { stats } => folder::list(config, stats),
+            FolderOperation::View { folder, page_size } => folder::view(config, folder, page_size),
+            FolderOperation::Create { name, parents } => folder::create(config, name, parents),
+            FolderOperation::Delete {
+                name,
+                recursive,
+                yes,
+            } => folder::delete(config, name, recursive, yes),
+            FolderOperation::Empty { name } => folder::empty(config, name),
+        },
     }
+}

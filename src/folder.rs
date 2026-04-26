@@ -1,7 +1,8 @@
 use crate::{Config, account::auth, mail::read};
 
-use dialoguer::{theme::ColorfulTheme, Confirm, Select};
-use chrono::{Local, DateTime};
+use chrono::{DateTime, Local};
+use dialoguer::{Confirm, Select, theme::ColorfulTheme};
+use std::process;
 
 pub fn list(config: Config, stats: bool) {
     let mut imap_session = auth(config);
@@ -12,8 +13,14 @@ pub fn list(config: Config, stats: bool) {
 
     for mailbox in mailboxes.iter() {
         if stats {
-            if !mailbox.attributes().contains(&imap::types::NameAttribute::NoSelect) {
-                let msg_cnt = imap_session.examine(mailbox.name()).expect(&format!("Failed to retrieve total messages for folder {}", mailbox.name()));
+            if !mailbox
+                .attributes()
+                .contains(&imap::types::NameAttribute::NoSelect)
+            {
+                let msg_cnt = imap_session.examine(mailbox.name()).expect(&format!(
+                    "Failed to retrieve total messages for folder {}",
+                    mailbox.name()
+                ));
                 msgs.push((msg_cnt.exists, mailbox.name().to_string()))
             }
         } else {
@@ -22,8 +29,11 @@ pub fn list(config: Config, stats: bool) {
     }
 
     for item in msgs {
-        if stats { println!("{} [{}]", item.1, item.0) }
-        else { println!("{}", item.1) }
+        if stats {
+            println!("{} [{}]", item.1, item.0)
+        } else {
+            println!("{}", item.1)
+        }
     }
 
     imap_session.logout().unwrap();
@@ -32,7 +42,13 @@ pub fn list(config: Config, stats: bool) {
 pub fn view(config: Config, folder: String, page_size: usize) {
     let mut imap_session = auth(config.clone());
 
-    let _ = imap_session.select(&folder);
+    match imap_session.select(&folder) {
+        Ok(_) => {}
+        Err(_) => {
+            eprintln!("Failed to open folder");
+            process::exit(1);
+        }
+    }
 
     let mails = imap_session.fetch("1:*", "(BODY.PEEK[HEADER])").unwrap();
 
@@ -60,9 +76,17 @@ pub fn view(config: Config, folder: String, page_size: usize) {
                 }
             }
 
-            let parsed_date = DateTime::parse_from_rfc2822(&date).unwrap().with_timezone(&Local);
+            let parsed_date = DateTime::parse_from_rfc2822(&date)
+                .unwrap()
+                .with_timezone(&Local);
 
-            messages.push(format!("[{:03}] {} | {} | {}", current_id, subject, from, parsed_date.format("%Y-%m-%d %I:%M:%S %p")));
+            messages.push(format!(
+                "[{:03}] {} | {} | {}",
+                current_id,
+                subject,
+                from,
+                parsed_date.format("%Y-%m-%d %I:%M:%S %p")
+            ));
 
             current_id += 1;
         }
@@ -70,24 +94,27 @@ pub fn view(config: Config, folder: String, page_size: usize) {
 
     let _ = imap_session.logout();
 
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .default(0)
-        .items(&messages)
-        .max_length(page_size)
-        .interact_opt()
-        .unwrap();
+    if !messages.is_empty() {
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .default(0)
+            .items(&messages)
+            .clear(false)
+            .max_length(page_size)
+            .interact_opt()
+            .unwrap();
 
-    if let Some(selection) = selection {
-        read(config, folder, selection.try_into().unwrap());
+        if let Some(selection) = selection {
+            read(config, folder, selection.try_into().unwrap());
+        }
+    } else {
+        println!("Folder {} is empty", folder);
     }
 }
 
 pub fn create(config: Config, name: String, parents: bool) {
     let mut imap_session = auth(config);
 
-    let mailboxes = imap_session
-        .list(None, Some("*"))
-        .unwrap();
+    let mailboxes = imap_session.list(None, Some("*")).unwrap();
 
     let delimiter = mailboxes[0]
         .delimiter()
@@ -138,9 +165,7 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
 
         if confirmation {
             if recursive {
-                let mailboxes = imap_session
-                    .list(None, Some("*"))
-                    .unwrap();
+                let mailboxes = imap_session.list(None, Some("*")).unwrap();
 
                 let mut del_mailboxes = Vec::new();
 
@@ -159,7 +184,10 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
                 del_mailboxes.reverse();
 
                 for mailbox in del_mailboxes {
-                    if !mailbox.attributes().contains(&imap::types::NameAttribute::NoSelect) {
+                    if !mailbox
+                        .attributes()
+                        .contains(&imap::types::NameAttribute::NoSelect)
+                    {
                         if let Err(_) = imap_session.delete(&mailbox.name()) {
                             eprintln!("Failed to delete folder {}", mailbox.name());
                         }
@@ -173,7 +201,6 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
                     println!("Successfully deleted folder {}", name);
                 }
             }
-
         }
     }
 
@@ -183,7 +210,13 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
 pub fn empty(config: Config, name: String) {
     let mut imap_session = auth(config);
 
-    let _ = imap_session.select(&name);
+    match imap_session.select(&name) {
+        Ok(_) => {}
+        Err(_) => {
+            eprintln!("Failed to open folder");
+            process::exit(1);
+        }
+    }
 
     let search_results = imap_session.uid_search("ALL").unwrap();
 
@@ -191,7 +224,9 @@ pub fn empty(config: Config, name: String) {
         let uid_list: Vec<String> = search_results.iter().map(|id| id.to_string()).collect();
         let uid_set = uid_list.join(",");
 
-        imap_session.uid_store(uid_set, "+FLAGS.SILENT (\\Deleted)").expect("Emptying failed");
+        imap_session
+            .uid_store(uid_set, "+FLAGS.SILENT (\\Deleted)")
+            .expect("Emptying failed");
         imap_session.expunge().expect("Emptying failed");
 
         println!("Folder {} emptied", name);

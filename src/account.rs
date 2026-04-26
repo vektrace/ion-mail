@@ -1,12 +1,12 @@
-use crate::{APP_NAME, Config, Account};
+use crate::{APP_NAME, Account, Config};
 
+use dialoguer::{Confirm, Input, Password, Select, theme::ColorfulTheme};
 use email_address::EmailAddress;
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
-use std::net::{TcpStream, ToSocketAddrs};
-use std::time::Duration;
-use std::fs;
-use std::process;
 use keyring::Entry;
+use std::fs;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::process;
+use std::time::Duration;
 
 pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::TcpStream>> {
     let mut found = false;
@@ -39,9 +39,19 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
     let tls = native_tls::TlsConnector::builder().build().unwrap();
 
     let client = if use_account.imap_port != 143 {
-        imap::connect((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
+        imap::connect(
+            (use_account.imap.clone(), use_account.imap_port),
+            &use_account.imap,
+            &tls,
+        )
+        .unwrap()
     } else {
-        imap::connect_starttls((use_account.imap.clone(), use_account.imap_port), &use_account.imap, &tls).unwrap()
+        imap::connect_starttls(
+            (use_account.imap.clone(), use_account.imap_port),
+            &use_account.imap,
+            &tls,
+        )
+        .unwrap()
     };
 
     client
@@ -66,7 +76,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 }
             }
         })
-    .interact_text()
+        .interact_text()
         .unwrap();
 
     let smtp_value = smtp.clone();
@@ -87,7 +97,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 Err(format!("Could not connect to port {}", input))
             }
         })
-    .interact_text()
+        .interact_text()
         .unwrap();
 
     let imap: String = Input::with_theme(&ColorfulTheme::default())
@@ -102,7 +112,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 }
             }
         })
-    .interact_text()
+        .interact_text()
         .unwrap();
 
     let imap_value = imap.clone();
@@ -123,7 +133,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 Err(format!("Could not connect to port {}", input))
             }
         })
-    .interact_text()
+        .interact_text()
         .unwrap();
 
     let mail: String = Input::with_theme(&ColorfulTheme::default())
@@ -137,7 +147,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 }
             }
         })
-    .interact_text()
+        .interact_text()
         .unwrap();
 
     let password = Password::with_theme(&ColorfulTheme::default())
@@ -160,7 +170,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 };
             }
         })
-    .interact()
+        .interact()
         .unwrap();
 
     // the plan here: save password as password to keyring and email and other config to a file
@@ -172,7 +182,12 @@ pub fn add(toml_path: &str, old_config: Config) {
     let mut current_active = true;
 
     for item in &old_config.accounts {
-        if item.email == mail && item.smtp == smtp && item.smtp_port == smtp_port && item.imap == imap && item.imap_port == imap_port {
+        if item.email == mail
+            && item.smtp == smtp
+            && item.smtp_port == smtp_port
+            && item.imap == imap
+            && item.imap_port == imap_port
+        {
             eprintln!("Account already exists");
             process::exit(1);
         }
@@ -216,7 +231,12 @@ pub fn add(toml_path: &str, old_config: Config) {
 pub fn list(config: Config) {
     if config.accounts.len() > 0 {
         for account in config.accounts {
-            println!("[{id:03}] [{status}] {email}", id=account.id, status=if account.active { "+" } else { "-" }, email=account.email);
+            println!(
+                "[{id:03}] [{status}] {email}",
+                id = account.id,
+                status = if account.active { "+" } else { "-" },
+                email = account.email
+            );
         }
     } else {
         println!("No accounts found");
@@ -275,7 +295,15 @@ pub fn whoami(config: Config) {
     if config.accounts.len() > 0 {
         for account in config.accounts {
             if account.active {
-                println!("{id:03} | {email} | {smtp}:{smtp_port} | {imap}:{imap_port}", id=account.id, email=account.email, smtp=account.smtp, smtp_port=account.smtp_port, imap=account.imap, imap_port=account.imap_port);
+                println!(
+                    "{id:03} | {email} | {smtp}:{smtp_port} | {imap}:{imap_port}",
+                    id = account.id,
+                    email = account.email,
+                    smtp = account.smtp,
+                    smtp_port = account.smtp_port,
+                    imap = account.imap,
+                    imap_port = account.imap_port
+                );
                 return;
             }
         }
@@ -286,7 +314,15 @@ pub fn whoami(config: Config) {
 }
 
 pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
-    let items = vec!["Email", "Password", "SMTP", "IMAP", "Save & Exit", "Save", "Exit"];
+    let items = vec![
+        "Email",
+        "Password",
+        "SMTP",
+        "IMAP",
+        "Save & Exit",
+        "Save",
+        "Exit",
+    ];
 
     let mut config = Config {
         accounts: Vec::new(),
@@ -374,33 +410,45 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             }
                         }
                     })
-                .interact_text()
+                    .interact_text()
                     .unwrap();
-                },
+            }
             1 => {
                 password = Password::with_theme(&ColorfulTheme::default())
                     .with_prompt("Password")
                     .validate_with(|input: &String| -> Result<(), String> {
                         let tls = native_tls::TlsConnector::builder().build().unwrap();
                         if account_edit.imap_port == 143 {
-                            let client = imap::connect_starttls((account_edit.imap.clone(), 143), &account_edit.imap, &tls).unwrap();
+                            let client = imap::connect_starttls(
+                                (account_edit.imap.clone(), 143),
+                                &account_edit.imap,
+                                &tls,
+                            )
+                            .unwrap();
 
-                            let _imap_session = match client.login(account_edit.email.clone(), input) {
-                                Ok(_session) => return Ok(()),
-                                Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
-                            };
+                            let _imap_session =
+                                match client.login(account_edit.email.clone(), input) {
+                                    Ok(_session) => return Ok(()),
+                                    Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
+                                };
                         } else {
-                            let client = imap::connect((account_edit.imap.clone(), account_edit.imap_port), &account_edit.imap, &tls).unwrap();
+                            let client = imap::connect(
+                                (account_edit.imap.clone(), account_edit.imap_port),
+                                &account_edit.imap,
+                                &tls,
+                            )
+                            .unwrap();
 
-                            let _imap_session = match client.login(account_edit.email.clone(), input) {
-                                Ok(_session) => return Ok(()),
-                                Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
-                            };
+                            let _imap_session =
+                                match client.login(account_edit.email.clone(), input) {
+                                    Ok(_session) => return Ok(()),
+                                    Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
+                                };
                         }
                     })
-                .interact()
+                    .interact()
                     .unwrap();
-                },
+            }
             2 => {
                 account_edit.smtp = Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("SMTP Server")
@@ -414,7 +462,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             }
                         }
                     })
-                .interact_text()
+                    .interact_text()
                     .unwrap();
 
                 let smtp_value = account_edit.smtp.clone();
@@ -427,7 +475,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
 
                             if let Ok(mut addrs) = target.to_socket_addrs() {
                                 if let Some(address) = addrs.next() {
-                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok() {
+                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3))
+                                        .is_ok()
+                                    {
                                         return Ok(());
                                     }
                                 }
@@ -435,9 +485,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             Err(format!("Could not connect to port {}", input))
                         }
                     })
-                .interact_text()
+                    .interact_text()
                     .unwrap();
-                },
+            }
             3 => {
                 account_edit.imap = Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("IMAP Server")
@@ -451,7 +501,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             }
                         }
                     })
-                .interact_text()
+                    .interact_text()
                     .unwrap();
 
                 let imap_value = account_edit.imap.clone();
@@ -464,7 +514,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
 
                             if let Ok(mut addrs) = target.to_socket_addrs() {
                                 if let Some(address) = addrs.next() {
-                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok() {
+                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3))
+                                        .is_ok()
+                                    {
                                         return Ok(());
                                     }
                                 }
@@ -472,33 +524,33 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             Err(format!("Could not connect to port {}", input))
                         }
                     })
-                .interact_text()
+                    .interact_text()
                     .unwrap();
-                },
+            }
             4 => {
                 config.accounts.push(account_edit);
                 let toml_output = toml::to_string(&config).expect("Something went wrong");
                 fs::write(toml_path, toml_output).expect("Failed to save file");
                 break;
-            },
+            }
             5 => {
                 config.accounts.push(account_edit.clone());
                 let toml_output = toml::to_string(&config).expect("Something went wrong");
                 fs::write(toml_path, toml_output).expect("Failed to save file");
                 let _ = entry.set_password(&password.as_str());
-            },
+            }
             _ => {
                 if Confirm::with_theme(&ColorfulTheme::default())
                     .with_prompt("Are you sure you want to exit?")
-                        .default(true)
-                        .show_default(true)
-                        .wait_for_newline(true)
-                        .interact()
-                        .unwrap()
+                    .default(true)
+                    .show_default(true)
+                    .wait_for_newline(true)
+                    .interact()
+                    .unwrap()
                 {
                     break;
                 }
-            },
+            }
         }
     }
 }
@@ -530,7 +582,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                     config.accounts.push(acc);
                 }
             }
-        } 
+        }
     } else {
         // shift active to some other
         // or easier:

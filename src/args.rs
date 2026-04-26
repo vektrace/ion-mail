@@ -58,7 +58,7 @@ pub enum AccountOperation {
     },
     /// Log out of an account and clear configuration
     ///
-    /// This command removes the account configuration from your local machine. 
+    /// This command removes the account configuration from your local machine.
     /// This action is IRREVERSIBLE and does not delete the actual
     /// mail on the server.
     Logout {
@@ -100,6 +100,22 @@ pub enum MailOperation {
         folder: String,
         /// The index number shown next to the email in 'mail list'
         id: u32,
+    },
+    /// Download the attachment(s) of a specific email
+    ///
+    /// This command downloads all attachments into the save folder.
+    /// If the attachment ID is set, only the attachments with this index
+    /// will be downloaded.
+    Download {
+        /// The folder where the email is located
+        folder: String,
+        /// The index number shown next to the email in 'mail list'
+        id: u32,
+        /// The index number shown next to the attachments when viewing an email
+        #[arg(short, long)]
+        attachment_id: Option<Vec<u32>>,
+        /// The folder to save the attachments to
+        save_folder: String,
     },
     /// Search for messages matching a specific sender or query
     ///

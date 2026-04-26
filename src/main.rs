@@ -85,12 +85,9 @@ fn main() {
                 attachment_id,
                 save_folder,
             } => mail::download(config, folder, id, attachment_id, save_folder),
-            MailOperation::Search {
-                query,
-                folder,
-                since,
-            } => mail::search(config, query, folder, since),
-            MailOperation::Move { id, from, to } => mail::mv(config, id, from, to),
+            MailOperation::Search { query, folder } => mail::search(config, query, folder),
+            MailOperation::Move { from, to, id } => mail::mv(config, from, to, id),
+            MailOperation::Delete { id, folder } => mail::delete(config, id, folder),
             MailOperation::Draft {
                 to,
                 subject,

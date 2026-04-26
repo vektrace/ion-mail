@@ -57,7 +57,7 @@ pub fn read(config: Config, folder: String, id: u32) {
     match imap_session.select(folder) {
         Ok(_) => {}
         Err(_) => {
-            eprintln!("Failed to open folder");
+            eprintln!("Failed to select folder");
             process::exit(1);
         }
     }
@@ -177,7 +177,7 @@ pub fn download(
     match imap_session.select(folder) {
         Ok(_) => {}
         Err(_) => {
-            eprintln!("Failed to open folder");
+            eprintln!("Failed to select folder");
             process::exit(1);
         }
     }
@@ -265,19 +265,140 @@ pub fn download(
     }
 }
 
-pub fn search(config: Config, query: String, folder: String, since: Option<String>) {
-    // validate date too
-    todo!("Implement searching for {} in folder {}", query, folder);
+pub fn search(config: Config, query: String, folder: String) {
+    let mut imap_session = auth(config);
+
+    if folder != "ALL" {
+        match imap_session.select(&folder) {
+            Ok(_) => {}
+            Err(_) => {
+                eprintln!("Failed to select folder");
+                process::exit(1);
+            }
+        }
+
+        let fetch = imap_session.fetch("1:*", "(BODY.PEEK[])").unwrap();
+
+        let mut current_id = 0;
+
+        for mail in fetch.iter().rev() {
+            let parsed = mailparse::parse_mail(mail.body().expect("Failed to parse mail")).unwrap();
+
+            let subject = parsed
+                .headers
+                .get_first_value("Subject")
+                .unwrap_or_else(|| "".to_string());
+            let from = parsed
+                .headers
+                .get_first_value("From")
+                .unwrap_or_else(|| "".to_string());
+            let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
+
+            if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
+                println!("[{:03}] | {} | {}", current_id, subject, from);
+            }
+            current_id += 1;
+        }
+    } else {
+        let mailboxes = imap_session.list(None, Some("*")).unwrap();
+
+        for mailbox in mailboxes.iter() {
+            match imap_session.select(&mailbox.name()) {
+                Ok(_) => {}
+                Err(_) => {
+                    eprintln!("Failed to select folder");
+                    process::exit(1);
+                }
+            }
+
+            let fetch = imap_session.fetch("1:*", "(BODY.PEEK[])").unwrap();
+
+            let mut current_id = 0;
+
+            for mail in fetch.iter().rev() {
+                let parsed =
+                    mailparse::parse_mail(mail.body().expect("Failed to parse email")).unwrap();
+
+                let subject = parsed
+                    .headers
+                    .get_first_value("Subject")
+                    .unwrap_or_else(|| "".to_string());
+                let from = parsed
+                    .headers
+                    .get_first_value("From")
+                    .unwrap_or_else(|| "".to_string());
+                let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
+
+                if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
+                    println!(
+                        "[{:03}] | {} | {} | {}",
+                        current_id,
+                        mailbox.name(),
+                        subject,
+                        from
+                    );
+                }
+                current_id += 1;
+            }
+        }
+    }
+
+    let _ = imap_session.logout();
 }
 
 // mv because move is reserved by rust
-pub fn mv(config: Config, id: u32, from: String, to: String) {
-    todo!(
-        "Implement moving mail with index {} from folder {} to folder {}",
-        id,
+pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
+    let mut imap_session = auth(config);
+
+    match imap_session.select(&from) {
+        Ok(_) => {}
+        Err(_) => {
+            eprintln!("Failed to select folder");
+        }
+    }
+
+    let mails = imap_session.fetch("1:*", "(FLAGS)").unwrap();
+
+    let mut current_id = 0;
+    let mut found_ids = Vec::new();
+
+    for _mail in mails.iter().rev() {
+        if id.contains(&current_id) {
+            found_ids.push(current_id);
+        }
+        current_id += 1;
+    }
+
+    if found_ids.len() != id.len() {
+        eprintln!(
+            "Mail with ID {} could not be found",
+            id.iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<String>>()
+                .join(", ")
+        );
+        process::exit(1);
+    }
+
+    let max_value = mails.len();
+
+    for index in &id {
+        let _ = imap_session.mv(&format!("{}", max_value - (*index as usize)), &to);
+    }
+
+    println!(
+        "Mail with ID {} has been moved from {} to {}",
+        id.iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<String>>()
+            .join(", "),
         from,
         to
     );
+}
+
+pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
+    todo!("implement deleting");
 }
 
 pub fn draft(

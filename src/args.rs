@@ -112,7 +112,7 @@ pub enum MailOperation {
         /// The index number shown next to the email in 'mail list'
         id: u32,
         /// The index number shown next to the attachments when viewing an email
-        #[arg(short, long)]
+        #[arg(short, long, value_delimiter = ',')]
         attachment_id: Option<Vec<u32>>,
         /// The folder to save the attachments to
         save_folder: String,
@@ -132,17 +132,12 @@ pub enum MailOperation {
         /// folder available on the account.
         #[arg(short, long, default_value = "INBOX")]
         folder: String,
-        /// Only return messages received after this date (YYYY-MM-DD)
-        #[arg(long)]
-        since: Option<String>,
     },
     /// Move a message from on folder to another
     ///
     /// This command transfers a specific email between folders on the
     /// server.
     Move {
-        /// The index number of the message to move
-        id: u32,
         /// The name of the folder where the message is currently located
         ///
         /// Examples: INBOX, Sent, Drafts.
@@ -151,6 +146,24 @@ pub enum MailOperation {
         ///
         /// If the folder does not exist, the command will fail.
         to: String,
+        /// The index number(s) of the message to move
+        #[arg(short, long, value_delimiter = ',')]
+        id: Vec<u32>,
+    },
+    /// Delete a message
+    ///
+    /// This command permanently deletes a message. This action cannot
+    /// be undone.
+    Delete {
+        /// The index number(s) of the message(s) to delete
+        ///
+        /// If not provided, multiple messages can be selected
+        /// interactively.
+        #[arg(short, long, value_delimiter = ',')]
+        id: Option<Vec<u32>>,
+        /// The folder where the message(s) are in
+        #[arg(short, long)]
+        folder: String,
     },
     /// Construct and save a message to the Drafts folder.
     ///

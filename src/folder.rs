@@ -45,7 +45,7 @@ pub fn view(config: Config, folder: String, page_size: usize) {
     match imap_session.select(&folder) {
         Ok(_) => {}
         Err(_) => {
-            eprintln!("Failed to open folder");
+            eprintln!("Failed to select folder");
             process::exit(1);
         }
     }
@@ -213,7 +213,7 @@ pub fn empty(config: Config, name: String) {
     match imap_session.select(&name) {
         Ok(_) => {}
         Err(_) => {
-            eprintln!("Failed to open folder");
+            eprintln!("Failed to select folder");
             process::exit(1);
         }
     }

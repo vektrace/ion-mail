@@ -1,7 +1,7 @@
 use crate::{APP_NAME, Account, Config, account::auth};
 
 use chrono::{DateTime, Local};
-use dialoguer::{Confirm, Editor, Input, Select, theme::ColorfulTheme};
+use dialoguer::{Confirm, Editor, Input, MultiSelect, Select, theme::ColorfulTheme};
 use keyring::Entry;
 use mailparse::{DispositionType, MailHeaderMap, ParsedMail};
 use minus::Pager;
@@ -268,6 +268,8 @@ pub fn download(
 pub fn search(config: Config, query: String, folder: String) {
     let mut imap_session = auth(config);
 
+    let mut results: Vec<String> = Vec::new();
+
     if folder != "ALL" {
         match imap_session.select(&folder) {
             Ok(_) => {}
@@ -295,7 +297,7 @@ pub fn search(config: Config, query: String, folder: String) {
             let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
 
             if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
-                println!("[{:03}] | {} | {}", current_id, subject, from);
+                results.push(format!("[{:03}] | {} | {}", current_id, subject, from));
             }
             current_id += 1;
         }
@@ -330,18 +332,25 @@ pub fn search(config: Config, query: String, folder: String) {
                 let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
 
                 if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
-                    println!(
+                    results.push(format!(
                         "[{:03}] | {} | {} | {}",
                         current_id,
                         mailbox.name(),
                         subject,
                         from
-                    );
+                    ));
                 }
                 current_id += 1;
             }
         }
     }
+
+    let _ = Select::with_theme(&ColorfulTheme::default())
+        .default(0)
+        .clear(false)
+        .max_length(20)
+        .items(&results)
+        .interact_opt();
 
     let _ = imap_session.logout();
 }
@@ -398,7 +407,145 @@ pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
 }
 
 pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
-    todo!("implement deleting");
+    let mut imap_session = auth(config);
+
+    match imap_session.select(&folder) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Failed to select folder: {}", e); // TODO: do this everywhere else too (error
+            // handling in general)
+            process::exit(1);
+        }
+    }
+
+    if let Some(id) = id {
+        let mails = imap_session.fetch("1:*", "(UID)").unwrap();
+
+        let mut current_id = 0;
+        let mut found_ids = Vec::new();
+
+        for mail in mails.iter().rev() {
+            if id.contains(&current_id) {
+                if let Some(uid) = mail.uid {
+                    found_ids.push(uid);
+                }
+            }
+            current_id += 1;
+        }
+
+        if found_ids.len() != id.len() {
+            eprintln!(
+                "Mail with ID {} could not be found",
+                id.iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+            process::exit(1);
+        }
+
+        let uid_set = found_ids
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<String>>()
+            .join(",");
+
+        let _ = imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)");
+
+        let _ = imap_session.uid_expunge(&uid_set);
+    } else {
+        let mails = imap_session
+            .fetch("1:*", "(UID, BODY.PEEK[HEADER])")
+            .unwrap();
+
+        let mut current_id = 0;
+        let mut messages: Vec<String> = Vec::new();
+
+        for mail in mails.iter().rev() {
+            if let Some(header_bytes) = mail.header() {
+                let (parsed_headers, _) = mailparse::parse_headers(header_bytes).unwrap();
+
+                let mut subject = String::new();
+                let mut from = String::new();
+                let mut date = String::new();
+
+                for header in parsed_headers {
+                    let key = header.get_key().to_lowercase();
+                    let value = header.get_value();
+
+                    match key.as_str() {
+                        "subject" => subject = value,
+                        "from" => from = value,
+                        "date" => date = value,
+                        _ => {}
+                    }
+                }
+
+                let parsed_date = DateTime::parse_from_rfc2822(&date)
+                    .unwrap()
+                    .with_timezone(&Local);
+
+                messages.push(format!(
+                    "[{:03}] {} | {} | {}",
+                    current_id,
+                    subject,
+                    from,
+                    parsed_date.format("%Y-%m-%d %I:%M:%S %p")
+                ));
+
+                current_id += 1;
+            }
+        }
+
+        if !messages.is_empty() {
+            let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+                .items(&messages)
+                .max_length(20)
+                .interact_opt()
+                .unwrap();
+
+            if let Some(selection) = selection {
+                let mut current_id = 0;
+                let mut found_ids = Vec::new();
+
+                for mail in mails.iter().rev() {
+                    if selection.contains(&current_id) {
+                        if let Some(uid) = mail.uid {
+                            found_ids.push(uid);
+                        }
+                    }
+                    current_id += 1;
+                }
+
+                if found_ids.len() != selection.len() {
+                    // should not be possible
+                    eprintln!(
+                        "Mail with ID {} could not be found",
+                        selection
+                            .iter()
+                            .map(|n| n.to_string())
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    );
+                    process::exit(1);
+                }
+
+                let uid_set = found_ids
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<String>>()
+                    .join(",");
+
+                let _ = imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)");
+
+                let _ = imap_session.uid_expunge(&uid_set);
+            }
+        } else {
+            println!("Folder {} is empty", folder);
+        }
+    }
+
+    let _ = imap_session.logout();
 }
 
 pub fn draft(

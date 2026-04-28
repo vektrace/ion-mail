@@ -225,16 +225,17 @@ pub fn empty(config: Config, name: String) {
         let uid_set = uid_list.join(",");
 
         imap_session
-            .uid_store(uid_set, "+FLAGS.SILENT (\\Deleted)")
+            .uid_store(&uid_set, "FLAGS (\\Deleted)")
             .expect("Emptying failed");
+
+        // store doesnt work on some servers
+
         imap_session.expunge().expect("Emptying failed");
 
         println!("Folder {} emptied", name);
     } else {
         println!("Folder {} is already empty", name);
     }
-
-    let _ = imap_session.noop();
 
     let _ = imap_session.logout();
 }

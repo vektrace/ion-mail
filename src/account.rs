@@ -54,9 +54,15 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
         .unwrap()
     };
 
-    client
-        .login(use_account.email, password)
-        .expect("Login failed")
+    match client.login(use_account.email, password) {
+        Ok(s) => {
+            return s;
+        }
+        Err((e, _orig_client)) => {
+            eprintln!("Login failed: {}", e);
+            process::exit(1);
+        }
+    }
 }
 
 pub fn add(toml_path: &str, old_config: Config) {
@@ -157,14 +163,14 @@ pub fn add(toml_path: &str, old_config: Config) {
             if imap_port == 143 {
                 let client = imap::connect_starttls((imap.clone(), 143), &imap, &tls).unwrap();
 
-                let _imap_session = match client.login(mail.clone(), input) {
+                match client.login(mail.clone(), input) {
                     Ok(_session) => return Ok(()),
                     Err((e, _unauth_client)) => return Err(format!("Error: {}", e)),
                 };
             } else {
                 let client = imap::connect((imap.clone(), imap_port), &imap, &tls).unwrap();
 
-                let _imap_session = match client.login(mail.clone(), input) {
+                match client.login(mail.clone(), input) {
                     Ok(_session) => return Ok(()),
                     Err((e, _unauth_client)) => return Err(format!("Error: {}", e)),
                 };
@@ -197,17 +203,13 @@ pub fn add(toml_path: &str, old_config: Config) {
         if item.id >= new_id {
             new_id = item.id + 1;
             if new_id >= (u32::MAX - 10).try_into().unwrap() {
-                eprintln!("ID to large");
+                eprintln!("ID too large");
                 process::exit(1);
             }
         }
     }
 
-    let mut _config = Config {
-        accounts: Vec::new(),
-    };
-
-    _config = old_config;
+    let mut _config = old_config;
 
     let new_account = Account {
         id: new_id,
@@ -221,11 +223,35 @@ pub fn add(toml_path: &str, old_config: Config) {
 
     _config.accounts.push(new_account);
 
-    let toml_output = toml::to_string(&_config).expect("Something went wrong");
-    fs::write(toml_path, toml_output).expect("Failed to save file");
+    let toml_output = match toml::to_string(&_config) {
+        Ok(toml) => toml,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
+    match fs::write(toml_path, toml_output) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Error when saving new config: {}", e);
+            process::exit(1);
+        }
+    }
 
-    let entry = Entry::new(APP_NAME, &new_id.to_string()).unwrap();
-    let _ = entry.set_password(&password);
+    let entry = match Entry::new(APP_NAME, &new_id.to_string()) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
+    match entry.set_password(&password) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Failed to set password: {}", e);
+            process::exit(1);
+        }
+    };
 }
 
 pub fn list(config: Config) {
@@ -285,8 +311,20 @@ pub fn switch(toml_path: &str, config: Config, account: String) {
             process::exit(1);
         }
     }
-    let toml_output = toml::to_string(&_config).expect("Something went wrong");
-    fs::write(toml_path, toml_output).expect("Failed to save file");
+    let toml_output = match toml::to_string(&_config) {
+        Ok(toml) => toml,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
+    match fs::write(toml_path, toml_output) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Error when saving new config: {}", e);
+            process::exit(1);
+        }
+    }
 
     println!("Successfully switched to account {}", account);
 }
@@ -386,8 +424,20 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
         }
     }
 
-    let entry = Entry::new(APP_NAME, &account_edit.id.to_string()).unwrap();
-    let mut password = entry.get_password().unwrap();
+    let entry = match Entry::new(APP_NAME, &account_edit.id.to_string()) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
+    let mut password = match entry.get_password() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to get password: {}", e);
+            process::exit(1);
+        }
+    };
 
     loop {
         let selection = Select::with_theme(&ColorfulTheme::default())
@@ -426,11 +476,10 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             )
                             .unwrap();
 
-                            let _imap_session =
-                                match client.login(account_edit.email.clone(), input) {
-                                    Ok(_session) => return Ok(()),
-                                    Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
-                                };
+                            match client.login(account_edit.email.clone(), input) {
+                                Ok(_session) => return Ok(()),
+                                Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
+                            };
                         } else {
                             let client = imap::connect(
                                 (account_edit.imap.clone(), account_edit.imap_port),
@@ -439,11 +488,10 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             )
                             .unwrap();
 
-                            let _imap_session =
-                                match client.login(account_edit.email.clone(), input) {
-                                    Ok(_session) => return Ok(()),
-                                    Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
-                                };
+                            match client.login(account_edit.email.clone(), input) {
+                                Ok(_session) => return Ok(()),
+                                Err((e, _unauth_client)) => return Err(format!("Error:{}", e)),
+                            };
                         }
                     })
                     .interact()
@@ -529,15 +577,54 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
             }
             4 => {
                 config.accounts.push(account_edit);
-                let toml_output = toml::to_string(&config).expect("Something went wrong");
-                fs::write(toml_path, toml_output).expect("Failed to save file");
+                let toml_output = match toml::to_string(&config) {
+                    Ok(toml) => toml,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        process::exit(1);
+                    }
+                };
+                match fs::write(toml_path, toml_output) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Error when saving new config: {}", e);
+                        process::exit(1);
+                    }
+                };
+
+                match entry.set_password(&password.as_str()) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Failed to set password: {}", e);
+                        process::exit(1);
+                    }
+                }
                 break;
             }
             5 => {
                 config.accounts.push(account_edit.clone());
-                let toml_output = toml::to_string(&config).expect("Something went wrong");
-                fs::write(toml_path, toml_output).expect("Failed to save file");
-                let _ = entry.set_password(&password.as_str());
+                let toml_output = match toml::to_string(&config) {
+                    Ok(toml) => toml,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        process::exit(1);
+                    }
+                };
+                match fs::write(toml_path, toml_output) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Error when saving new config: {}", e);
+                        process::exit(1);
+                    }
+                };
+
+                match entry.set_password(&password.as_str()) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Failed to set password: {}", e);
+                        process::exit(1);
+                    }
+                }
             }
             _ => {
                 if Confirm::with_theme(&ColorfulTheme::default())
@@ -560,56 +647,113 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
         accounts: Vec::new(),
     };
 
-    let mut found = false;
-    if let Some(account) = account {
-        if let Ok(id) = account.parse::<u32>() {
-            for acc in old_config.accounts {
-                if acc.id == id {
-                    found = true;
-                    let entry = Entry::new(APP_NAME, &id.to_string()).unwrap();
-                    let _ = entry.delete_credential();
-                } else {
-                    config.accounts.push(acc);
+    if Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Are you sure you want to logout?")
+        .default(true)
+        .show_default(true)
+        .wait_for_newline(true)
+        .interact()
+        .unwrap()
+    {
+        let mut found = false;
+        if let Some(account) = account {
+            if let Ok(id) = account.parse::<u32>() {
+                for acc in old_config.accounts {
+                    if acc.id == id {
+                        found = true;
+                        let entry = match Entry::new(APP_NAME, &id.to_string()) {
+                            Ok(e) => e,
+                            Err(e) => {
+                                eprintln!("Unexpected Error: {}", e);
+                                process::exit(1);
+                            }
+                        };
+                        match entry.delete_credential() {
+                            Ok(_) => {}
+                            Err(e) => {
+                                eprintln!("Error when deleting credential: {}", e);
+                                process::exit(1);
+                            }
+                        }
+                    } else {
+                        config.accounts.push(acc);
+                    }
+                }
+            } else {
+                for acc in old_config.accounts {
+                    if acc.email == account {
+                        found = true;
+                        let entry = match Entry::new(APP_NAME, &acc.id.to_string()) {
+                            Ok(e) => e,
+                            Err(e) => {
+                                eprintln!("Unexpected Error: {}", e);
+                                process::exit(1);
+                            }
+                        };
+                        match entry.delete_credential() {
+                            Ok(_) => {}
+                            Err(e) => {
+                                eprintln!("Error when deleting credential: {}", e);
+                                process::exit(1);
+                            }
+                        }
+                    } else {
+                        config.accounts.push(acc);
+                    }
                 }
             }
         } else {
+            // shift active to some other
+            // or easier:
+            // user has to switch manually
             for acc in old_config.accounts {
-                if acc.email == account {
+                if acc.active {
                     found = true;
-                    let entry = Entry::new(APP_NAME, &acc.id.to_string()).unwrap();
-                    let _ = entry.delete_credential();
+                    let entry = match Entry::new(APP_NAME, &acc.id.to_string()) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            eprintln!("Unexpected Error: {}", e);
+                            process::exit(1);
+                        }
+                    };
+                    match entry.delete_credential() {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Error when deleting credential: {}", e);
+                            process::exit(1);
+                        }
+                    }
                 } else {
                     config.accounts.push(acc);
                 }
             }
-        }
-    } else {
-        // shift active to some other
-        // or easier:
-        // user has to switch manually
-        for acc in old_config.accounts {
-            if acc.active {
-                found = true;
-                let entry = Entry::new(APP_NAME, &acc.id.to_string()).unwrap();
-                let _ = entry.delete_credential();
-            } else {
-                config.accounts.push(acc);
+            // shift active to first account (because what else should i do, predict what account the
+            // user wants?)
+            if config.accounts.len() > 0 {
+                config.accounts[0].active = true;
+            }
+
+            if !found {
+                println!("No account is currently active");
             }
         }
-        // shift active to first account (because what else should i do, predict what account the
-        // user wants?)
-        if config.accounts.len() > 0 {
-            config.accounts[0].active = true;
-        }
 
-        if !found {
-            println!("No account is currently active");
+        if found {
+            let toml_output = match toml::to_string(&config) {
+                Ok(toml) => toml,
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    process::exit(1);
+                }
+            };
+            match fs::write(toml_path, toml_output) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Error when saving new config: {}", e);
+                    process::exit(1);
+                }
+            }
+            println!("Logout successful");
         }
-    }
-
-    if found {
-        let toml_output = toml::to_string(&config).expect("Something went wrong");
-        fs::write(toml_path, toml_output).expect("Failed to save file");
-        println!("Logout successful");
     }
 }

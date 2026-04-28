@@ -56,13 +56,19 @@ pub fn read(config: Config, folder: String, id: u32) {
 
     match imap_session.select(folder) {
         Ok(_) => {}
-        Err(_) => {
-            eprintln!("Failed to select folder");
+        Err(e) => {
+            eprintln!("Failed to select folder: {}", e);
             process::exit(1);
         }
     }
 
-    let mails = imap_session.fetch("1:*", "(FLAGS)").unwrap();
+    let mails = match imap_session.fetch("1:*", "(FLAGS)") {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
 
     let mut current_id = 0;
     let mut found = false;
@@ -81,13 +87,31 @@ pub fn read(config: Config, folder: String, id: u32) {
 
     let max_value = mails.len();
 
-    let found_mail = imap_session
-        .fetch(format!("{}", max_value - (id as usize)), "(BODY[])")
-        .unwrap();
+    let found_mail = match imap_session.fetch(format!("{}", max_value - (id as usize)), "(BODY[])")
+    {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    match imap_session.logout() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Logout failed, ignoring... ({})", e);
+        }
+    }
 
     let mail_bytes = found_mail[0].body();
 
-    let parsed = mailparse::parse_mail(mail_bytes.expect("Failed to parse mail")).unwrap();
+    let parsed = match mailparse::parse_mail(mail_bytes.unwrap()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to parse mail: {}", e);
+            process::exit(1);
+        }
+    };
 
     let subject = parsed
         .headers
@@ -111,9 +135,13 @@ pub fn read(config: Config, folder: String, id: u32) {
         (None, None) => " (No content) ".to_string(),
     };
 
-    let parsed_date = DateTime::parse_from_rfc2822(&date)
-        .unwrap()
-        .with_timezone(&Local);
+    let parsed_date = match DateTime::parse_from_rfc2822(&date) {
+        Ok(d) => d.with_timezone(&Local),
+        Err(e) => {
+            eprintln!("Failed to parse date: {}", e);
+            process::exit(1);
+        }
+    };
 
     let mut attachments: Vec<String> = Vec::new();
 
@@ -155,14 +183,28 @@ pub fn read(config: Config, folder: String, id: u32) {
     content.push_str(&format!("\n\n{}", body));
 
     let pager = Pager::new();
-    pager
-        .set_prompt("Reading email (Press 'q' to exit)")
-        .expect("Failed to send data to the pager");
-    pager
-        .set_text(content)
-        .expect("Failed to send data to the pager");
+    match pager.set_prompt("Reading email (Press 'q' to exit)") {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    }
+    match pager.set_text(content) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    }
 
-    minus::dynamic_paging(pager).expect("Failed to start pager");
+    match minus::dynamic_paging(pager) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    }
 }
 
 pub fn download(
@@ -176,13 +218,19 @@ pub fn download(
 
     match imap_session.select(folder) {
         Ok(_) => {}
-        Err(_) => {
-            eprintln!("Failed to select folder");
+        Err(e) => {
+            eprintln!("Failed to select folder: {}", e);
             process::exit(1);
         }
     }
 
-    let mails = imap_session.fetch("1:*", "(FLAGS)").unwrap();
+    let mails = match imap_session.fetch("1:*", "(FLAGS)") {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
 
     let mut current_id = 0;
     let mut found = false;
@@ -201,13 +249,24 @@ pub fn download(
 
     let max_value = mails.len();
 
-    let found_mail = imap_session
-        .fetch(format!("{}", max_value - (id as usize)), "(BODY.PEEK[])")
-        .unwrap();
+    let found_mail =
+        match imap_session.fetch(format!("{}", max_value - (id as usize)), "(BODY.PEEK[])") {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
 
     let mail_bytes = found_mail[0].body();
 
-    let parsed = mailparse::parse_mail(mail_bytes.expect("Failed to parse mail")).unwrap();
+    let parsed = match mailparse::parse_mail(mail_bytes.unwrap()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to parse mail: {}", e);
+            process::exit(1);
+        }
+    };
 
     let mut current_attachment_id = 0;
 
@@ -236,7 +295,13 @@ pub fn download(
                     let binary_data = part.get_body_raw().unwrap();
 
                     let mut file = File::create(&save_path).unwrap();
-                    file.write_all(&binary_data).expect("Failed to save file");
+                    match file.write_all(&binary_data) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Failed to save file: {}", e);
+                            process::exit(1);
+                        }
+                    }
                 }
             } else {
                 let mut save_path = PathBuf::from(save_folder.clone());
@@ -245,7 +310,13 @@ pub fn download(
                 let binary_data = part.get_body_raw().unwrap();
 
                 let mut file = File::create(&save_path).unwrap();
-                file.write_all(&binary_data).expect("Failed to save file");
+                match file.write_all(&binary_data) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Failed to save file: {}", e);
+                        process::exit(1);
+                    }
+                }
             }
             current_attachment_id += 1;
         }
@@ -266,25 +337,37 @@ pub fn download(
 }
 
 pub fn search(config: Config, query: String, folder: String) {
-    let mut imap_session = auth(config);
+    let mut imap_session = auth(config.clone());
 
-    let mut results: Vec<String> = Vec::new();
+    let mut results: Vec<(String, String)> = Vec::new();
 
     if folder != "ALL" {
         match imap_session.select(&folder) {
             Ok(_) => {}
-            Err(_) => {
-                eprintln!("Failed to select folder");
+            Err(e) => {
+                eprintln!("Failed to select folder: {}", e);
                 process::exit(1);
             }
         }
 
-        let fetch = imap_session.fetch("1:*", "(BODY.PEEK[])").unwrap();
+        let fetch = match imap_session.fetch("1:*", "(BODY.PEEK[])") {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
 
         let mut current_id = 0;
 
         for mail in fetch.iter().rev() {
-            let parsed = mailparse::parse_mail(mail.body().expect("Failed to parse mail")).unwrap();
+            let parsed = match mailparse::parse_mail(mail.body().unwrap()) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Failed to parse mail: {}", e);
+                    process::exit(1);
+                }
+            };
 
             let subject = parsed
                 .headers
@@ -297,29 +380,49 @@ pub fn search(config: Config, query: String, folder: String) {
             let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
 
             if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
-                results.push(format!("[{:03}] | {} | {}", current_id, subject, from));
+                results.push((
+                    format!("[{:03}] | {} | {}", current_id, subject, from),
+                    folder.clone(),
+                ));
             }
             current_id += 1;
         }
     } else {
-        let mailboxes = imap_session.list(None, Some("*")).unwrap();
+        let mailboxes = match imap_session.list(None, Some("*")) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
 
         for mailbox in mailboxes.iter() {
             match imap_session.select(&mailbox.name()) {
                 Ok(_) => {}
-                Err(_) => {
-                    eprintln!("Failed to select folder");
+                Err(e) => {
+                    eprintln!("Failed to select folder: {}", e);
                     process::exit(1);
                 }
             }
 
-            let fetch = imap_session.fetch("1:*", "(BODY.PEEK[])").unwrap();
+            let fetch = match imap_session.fetch("1:*", "(BODY.PEEK[])") {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    process::exit(1);
+                }
+            };
 
             let mut current_id = 0;
 
             for mail in fetch.iter().rev() {
-                let parsed =
-                    mailparse::parse_mail(mail.body().expect("Failed to parse email")).unwrap();
+                let parsed = match mailparse::parse_mail(mail.body().unwrap()) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("Failed to parse mail: {}", e);
+                        process::exit(1);
+                    }
+                };
 
                 let subject = parsed
                     .headers
@@ -332,12 +435,15 @@ pub fn search(config: Config, query: String, folder: String) {
                 let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
 
                 if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
-                    results.push(format!(
-                        "[{:03}] | {} | {} | {}",
-                        current_id,
-                        mailbox.name(),
-                        subject,
-                        from
+                    results.push((
+                        format!(
+                            "[{:03}] | {} | {} | {}",
+                            current_id,
+                            mailbox.name(),
+                            subject,
+                            from
+                        ),
+                        mailbox.name().to_string(),
                     ));
                 }
                 current_id += 1;
@@ -345,90 +451,67 @@ pub fn search(config: Config, query: String, folder: String) {
         }
     }
 
-    let _ = Select::with_theme(&ColorfulTheme::default())
+    let selection = Select::with_theme(&ColorfulTheme::default())
         .default(0)
+        .items(&results.iter().map(|n| n.0.clone()).collect::<Vec<String>>())
         .clear(false)
         .max_length(20)
-        .items(&results)
-        .interact_opt();
+        .interact_opt()
+        .unwrap();
 
-    let _ = imap_session.logout();
+    if let Some(selection) = selection {
+        let s = match selection.try_into() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
+        read(config, results[s as usize].1.clone(), s);
+    }
+
+    match imap_session.logout() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Logout failed: {}", e);
+            process::exit(1);
+        }
+    }
 }
 
 // mv because move is reserved by rust
 pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
     let mut imap_session = auth(config);
 
-    match imap_session.select(&from) {
-        Ok(_) => {}
-        Err(_) => {
-            eprintln!("Failed to select folder");
+    if Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Are you sure you want to move mail?")
+        .default(false)
+        .show_default(true)
+        .wait_for_newline(true)
+        .interact()
+        .unwrap()
+    {
+        match imap_session.select(&from) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Failed to select folder: {}", e);
+            }
         }
-    }
 
-    let mails = imap_session.fetch("1:*", "(FLAGS)").unwrap();
-
-    let mut current_id = 0;
-    let mut found_ids = Vec::new();
-
-    for _mail in mails.iter().rev() {
-        if id.contains(&current_id) {
-            found_ids.push(current_id);
-        }
-        current_id += 1;
-    }
-
-    if found_ids.len() != id.len() {
-        eprintln!(
-            "Mail with ID {} could not be found",
-            id.iter()
-                .map(|n| n.to_string())
-                .collect::<Vec<String>>()
-                .join(", ")
-        );
-        process::exit(1);
-    }
-
-    let max_value = mails.len();
-
-    for index in &id {
-        let _ = imap_session.mv(&format!("{}", max_value - (*index as usize)), &to);
-    }
-
-    println!(
-        "Mail with ID {} has been moved from {} to {}",
-        id.iter()
-            .map(|n| n.to_string())
-            .collect::<Vec<String>>()
-            .join(", "),
-        from,
-        to
-    );
-}
-
-pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
-    let mut imap_session = auth(config);
-
-    match imap_session.select(&folder) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Failed to select folder: {}", e); // TODO: do this everywhere else too (error
-            // handling in general)
-            process::exit(1);
-        }
-    }
-
-    if let Some(id) = id {
-        let mails = imap_session.fetch("1:*", "(UID)").unwrap();
+        let mails = match imap_session.fetch("1:*", "(FLAGS)") {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
 
         let mut current_id = 0;
         let mut found_ids = Vec::new();
 
-        for mail in mails.iter().rev() {
+        for _mail in mails.iter().rev() {
             if id.contains(&current_id) {
-                if let Some(uid) = mail.uid {
-                    found_ids.push(uid);
-                }
+                found_ids.push(current_id);
             }
             current_id += 1;
         }
@@ -444,108 +527,225 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
             process::exit(1);
         }
 
-        let uid_set = found_ids
-            .iter()
-            .map(|n| n.to_string())
-            .collect::<Vec<String>>()
-            .join(",");
+        let max_value = mails.len();
 
-        let _ = imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)");
-
-        let _ = imap_session.uid_expunge(&uid_set);
-    } else {
-        let mails = imap_session
-            .fetch("1:*", "(UID, BODY.PEEK[HEADER])")
-            .unwrap();
-
-        let mut current_id = 0;
-        let mut messages: Vec<String> = Vec::new();
-
-        for mail in mails.iter().rev() {
-            if let Some(header_bytes) = mail.header() {
-                let (parsed_headers, _) = mailparse::parse_headers(header_bytes).unwrap();
-
-                let mut subject = String::new();
-                let mut from = String::new();
-                let mut date = String::new();
-
-                for header in parsed_headers {
-                    let key = header.get_key().to_lowercase();
-                    let value = header.get_value();
-
-                    match key.as_str() {
-                        "subject" => subject = value,
-                        "from" => from = value,
-                        "date" => date = value,
-                        _ => {}
-                    }
+        for index in &id {
+            match imap_session.mv(&format!("{}", max_value - (*index as usize)), &to) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
                 }
+            };
+        }
 
-                let parsed_date = DateTime::parse_from_rfc2822(&date)
-                    .unwrap()
-                    .with_timezone(&Local);
+        println!(
+            "Mail with ID {} has been moved from {} to {}",
+            id.iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<String>>()
+                .join(", "),
+            from,
+            to
+        );
+    }
+}
 
-                messages.push(format!(
-                    "[{:03}] {} | {} | {}",
-                    current_id,
-                    subject,
-                    from,
-                    parsed_date.format("%Y-%m-%d %I:%M:%S %p")
-                ));
+pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
+    let mut imap_session = auth(config);
 
-                current_id += 1;
+    if Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Are you sure you want to delete mail?")
+        .default(true)
+        .show_default(true)
+        .wait_for_newline(true)
+        .interact()
+        .unwrap()
+    {
+        match imap_session.select(&folder) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Failed to select folder: {}", e);
+                process::exit(1);
             }
         }
 
-        if !messages.is_empty() {
-            let selection = MultiSelect::with_theme(&ColorfulTheme::default())
-                .items(&messages)
-                .max_length(20)
-                .interact_opt()
-                .unwrap();
-
-            if let Some(selection) = selection {
-                let mut current_id = 0;
-                let mut found_ids = Vec::new();
-
-                for mail in mails.iter().rev() {
-                    if selection.contains(&current_id) {
-                        if let Some(uid) = mail.uid {
-                            found_ids.push(uid);
-                        }
-                    }
-                    current_id += 1;
-                }
-
-                if found_ids.len() != selection.len() {
-                    // should not be possible
-                    eprintln!(
-                        "Mail with ID {} could not be found",
-                        selection
-                            .iter()
-                            .map(|n| n.to_string())
-                            .collect::<Vec<String>>()
-                            .join(", ")
-                    );
+        if let Some(id) = id {
+            let mails = match imap_session.fetch("1:*", "(UID)") {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
                     process::exit(1);
                 }
+            };
 
-                let uid_set = found_ids
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect::<Vec<String>>()
-                    .join(",");
+            let mut current_id = 0;
+            let mut found_ids = Vec::new();
 
-                let _ = imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)");
+            for mail in mails.iter().rev() {
+                if id.contains(&current_id) {
+                    if let Some(uid) = mail.uid {
+                        found_ids.push(uid);
+                    }
+                }
+                current_id += 1;
+            }
 
-                let _ = imap_session.uid_expunge(&uid_set);
+            if found_ids.len() != id.len() {
+                eprintln!(
+                    "Mail with ID {} could not be found",
+                    id.iter()
+                        .map(|n| n.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                );
+                process::exit(1);
+            }
+
+            let uid_set = found_ids
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<String>>()
+                .join(",");
+
+            match imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)") {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                }
+            }
+
+            match imap_session.uid_expunge(&uid_set) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    process::exit(1);
+                }
             }
         } else {
-            println!("Folder {} is empty", folder);
+            let mails = match imap_session.fetch("1:*", "(UID, BODY.PEEK[HEADER])") {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    process::exit(1);
+                }
+            };
+
+            let mut current_id = 0;
+            let mut messages: Vec<String> = Vec::new();
+
+            for mail in mails.iter().rev() {
+                if let Some(header_bytes) = mail.header() {
+                    let (parsed_headers, _) = match mailparse::parse_headers(header_bytes) {
+                        Ok(parsed) => parsed,
+                        Err(e) => {
+                            eprintln!("Failed to parse headers: {}", e);
+                            process::exit(1);
+                        }
+                    };
+
+                    let mut subject = String::new();
+                    let mut from = String::new();
+                    let mut date = String::new();
+
+                    for header in parsed_headers {
+                        let key = header.get_key().to_lowercase();
+                        let value = header.get_value();
+
+                        match key.as_str() {
+                            "subject" => subject = value,
+                            "from" => from = value,
+                            "date" => date = value,
+                            _ => {}
+                        }
+                    }
+
+                    let parsed_date = match DateTime::parse_from_rfc2822(&date) {
+                        Ok(d) => d.with_timezone(&Local),
+                        Err(e) => {
+                            eprintln!("Failed to parse date: {}", e);
+                            process::exit(1);
+                        }
+                    };
+
+                    messages.push(format!(
+                        "[{:03}] {} | {} | {}",
+                        current_id,
+                        subject,
+                        from,
+                        parsed_date.format("%Y-%m-%d %I:%M:%S %p")
+                    ));
+
+                    current_id += 1;
+                }
+            }
+
+            if !messages.is_empty() {
+                let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+                    .items(&messages)
+                    .max_length(20)
+                    .interact_opt()
+                    .unwrap();
+
+                if let Some(selection) = selection {
+                    let mut current_id = 0;
+                    let mut found_ids = Vec::new();
+
+                    for mail in mails.iter().rev() {
+                        if selection.contains(&current_id) {
+                            if let Some(uid) = mail.uid {
+                                found_ids.push(uid);
+                            }
+                        }
+                        current_id += 1;
+                    }
+
+                    if found_ids.len() != selection.len() {
+                        // should not be possible
+                        eprintln!(
+                            "Mail with ID {} could not be found",
+                            selection
+                                .iter()
+                                .map(|n| n.to_string())
+                                .collect::<Vec<String>>()
+                                .join(", ")
+                        );
+                        process::exit(1);
+                    }
+
+                    let uid_set = found_ids
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",");
+
+                    match imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)") {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Unexpected Error: {}", e);
+                            process::exit(1);
+                        }
+                    }
+
+                    match imap_session.uid_expunge(&uid_set) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Unexpected Error: {}", e);
+                            process::exit(1);
+                        }
+                    }
+                }
+            } else {
+                println!("Folder {} is empty", folder);
+            }
+        }
+
+        match imap_session.logout() {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Logout failed, ignoring... ({})", e);
+            }
         }
     }
-
-    let _ = imap_session.logout();
 }
 
 pub fn draft(

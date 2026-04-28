@@ -30,7 +30,7 @@ pub struct Account {
 fn main() {
     let toml_p = dirs::home_dir().ok_or_else(|| {
         eprintln!("Could not find home directory");
-        process::exit(1)
+        process::exit(1);
     });
 
     let mut toml_path_unwrap = toml_p.unwrap();
@@ -38,21 +38,38 @@ fn main() {
     toml_path_unwrap.push(".ion-mail");
 
     if !toml_path_unwrap.exists() {
-        fs::create_dir_all(&toml_path_unwrap).expect("Could not create directories");
+        match fs::create_dir_all(&toml_path_unwrap) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Failed to create directories: {}", e);
+            }
+        }
     }
 
     toml_path_unwrap.push("config.toml");
 
-    let toml_path: &str = toml_path_unwrap.to_str().expect("Path invalid");
+    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
 
     let mut config = Config {
         accounts: Vec::new(),
     };
 
     if toml_path_unwrap.exists() {
-        let config_str = fs::read_to_string(toml_path).unwrap();
+        let config_str = match fs::read_to_string(toml_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error when reading config: {}", e);
+                process::exit(1);
+            }
+        };
 
-        config = toml::from_str(&config_str).expect("Invalid TOML file");
+        config = match toml::from_str(&config_str) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error when parsing toml: {}", e);
+                process::exit(1);
+            }
+        };
     }
 
     let args = Cli::parse();

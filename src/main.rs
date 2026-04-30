@@ -105,12 +105,6 @@ fn main() {
             MailOperation::Search { query, folder } => mail::search(config, query, folder),
             MailOperation::Move { from, to, id } => mail::mv(config, from, to, id),
             MailOperation::Delete { id, folder } => mail::delete(config, id, folder),
-            MailOperation::Draft {
-                to,
-                subject,
-                body,
-                attachments,
-            } => mail::draft(config, to, subject, body, attachments),
         },
         Resource::Folder { operation } => match operation {
             FolderOperation::List { stats } => folder::list(config, stats),

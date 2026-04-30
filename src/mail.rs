@@ -1,10 +1,14 @@
-use crate::{APP_NAME, Account, Config, account::auth};
+use crate::{APP_NAME, Config, account::auth};
 
 use chrono::{DateTime, Local};
 use dialoguer::{Confirm, Editor, Input, MultiSelect, Select, theme::ColorfulTheme};
 use keyring::Entry;
+use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart, header::ContentType};
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{Message, SmtpTransport, Transport};
 use mailparse::{DispositionType, MailHeaderMap, ParsedMail};
 use minus::Pager;
+use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -19,8 +23,224 @@ pub fn send(
     attachments: Option<Vec<std::path::PathBuf>>,
     yes: bool,
 ) {
+    let mut found = false;
+
+    let mut id = 0;
+    let mut email = "".to_string();
+    let mut smtp = "".to_string();
+    let mut smtp_port = 0;
+
+    for account in config.accounts {
+        if account.active {
+            found = true;
+            id = account.id;
+            email = account.email;
+            smtp = account.smtp;
+            smtp_port = account.smtp_port;
+        }
+    }
+
+    if !found {
+        println!("No account is currently active");
+        process::exit(0);
+    }
+
+    let email_str = match email.as_str().parse() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
     // also have to do like all checks and if only some are done still open interactively
-    todo!("Implement sending");
+    let mail_components = if let Some(to) = to
+        && let Some(subject) = subject
+        && let Some(body) = body
+    {
+        (to, subject, body, attachments)
+    } else {
+        let to_joined: String = Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("Enter the recipients of the email (separated by spaces)")
+            .validate_with(|input: &String| -> Result<(), &str> {
+                if input.is_empty() {
+                    Err("Recipients cannot be empty")
+                } else {
+                    Ok(())
+                }
+            })
+            .interact()
+            .unwrap();
+
+        let to: Vec<String> = to_joined.split(' ').map(|n| n.to_string()).collect();
+
+        let subject: String = Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("Enter the subject of the email")
+            .interact()
+            .unwrap();
+
+        let body = if let Some(body) = Editor::new().edit("Enter the body of the email").unwrap() {
+            body
+        } else {
+            eprintln!("Body cannot be empty");
+            process::exit(1);
+        };
+
+        let mut paths = Vec::new();
+
+        loop {
+            let input: String = Input::new()
+                .with_prompt("Enter a path (or leave blank to finish)")
+                .allow_empty(true)
+                .validate_with(|input: &String| -> Result<(), &str> {
+                    let expanded = shellexpand::tilde(input).to_string();
+                    if PathBuf::from(expanded.clone()).exists() {
+                        if PathBuf::from(expanded.clone()).is_file() {
+                            Ok(())
+                        } else {
+                            Err("Path is not a file")
+                        }
+                    } else {
+                        Err("Path does not exist")
+                    }
+                })
+                .interact_text()
+                .unwrap();
+
+            if input.is_empty() {
+                break;
+            }
+            if let Ok(input) = PathBuf::from(input).canonicalize() {
+                paths.push(input);
+            }
+        }
+
+        let final_paths = if paths.is_empty() { None } else { Some(paths) };
+
+        (to, subject, body, final_paths)
+    };
+
+    let to = mail_components.0;
+    let subject = mail_components.1;
+    let body = mail_components.2;
+    let attachments = mail_components.3;
+
+    let mut message = Message::builder().from(Mailbox::new(None, email_str));
+
+    for i in to {
+        let current_to = match i.as_str().parse() {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
+        message = message.to(Mailbox::new(None, current_to));
+    }
+
+    message = message.subject(&subject);
+
+    let alternative_part = MultiPart::alternative()
+        .singlepart(SinglePart::plain(strip_markdown::strip_markdown(&body)))
+        .singlepart(SinglePart::html(markdown::to_html(&body)));
+
+    let mut multipart = MultiPart::mixed().multipart(alternative_part);
+
+    let mut processed_files: Vec<(String, ContentType, Vec<u8>)> = Vec::new();
+
+    if let Some(attachments) = attachments {
+        for attachment in attachments {
+            if attachment.as_path().is_file() {
+                let name = attachment.as_path().file_name();
+                let guess = mime_guess::from_path(&attachment.as_path()).first_or_octet_stream();
+                let content_type =
+                    ContentType::parse(&format!("{}/{}", guess.type_(), guess.subtype())).unwrap();
+                let filebody = match fs::read(&attachment.as_path()) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        process::exit(1);
+                    }
+                };
+                if let Some(name) = name {
+                    let name_str = name.to_str();
+                    if let Some(name_str) = name_str {
+                        processed_files.push((name_str.to_string(), content_type, filebody));
+                    } else {
+                        eprintln!("Failed to get file name");
+                    }
+                } else {
+                    eprintln!("Failed to get file name");
+                }
+            } else {
+                eprintln!("Attachment {} is not a file", attachment.display());
+            }
+        }
+    }
+
+    for (name, mime, content) in processed_files {
+        let attachment = Attachment::new(name).body(content, mime);
+
+        multipart = multipart.singlepart(attachment);
+    }
+
+    let final_message = match message.multipart(multipart) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let entry = match Entry::new(APP_NAME, &id.to_string()) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Unexpected Error: {}", e);
+            process::exit(1);
+        }
+    };
+    let password = match entry.get_password() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to get password: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let mut send = false;
+    if Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Are you sure you want to send this Email?")
+        .default(true)
+        .show_default(true)
+        .wait_for_newline(true)
+        .interact()
+        .unwrap()
+    {
+        send = true;
+    }
+
+    if yes || send {
+        let creds = Credentials::new(email, password);
+
+        let mailer = SmtpTransport::relay(&smtp.clone())
+            .or_else(|_| SmtpTransport::starttls_relay(&smtp.clone()))
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to connect via TLS or STARTTLS: {}", e);
+                process::exit(1);
+            })
+            .credentials(creds)
+            .port(smtp_port)
+            .build();
+
+        match mailer.send(&final_message) {
+            Ok(_) => println!("Email sent"),
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        }
+    } else {
+        println!("Email discarded");
+    }
 }
 
 fn find_plain_text(part: &ParsedMail) -> Option<String> {
@@ -746,14 +966,4 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
             }
         }
     }
-}
-
-pub fn draft(
-    config: Config,
-    to: Option<Vec<String>>,
-    subject: Option<String>,
-    body: Option<String>,
-    attachments: Option<Vec<std::path::PathBuf>>,
-) {
-    todo!("Implement drafts");
 }

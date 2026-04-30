@@ -165,23 +165,6 @@ pub enum MailOperation {
         #[arg(short, long)]
         folder: String,
     },
-    /// Construct and save a message to the Drafts folder.
-    ///
-    /// This command creates a new message but does not send it.
-    Draft {
-        /// Recipient email address(es)
-        #[arg(short, long, value_delimiter = ',')]
-        to: Option<Vec<String>>,
-        /// The subject line of the draft
-        #[arg(short, long)]
-        subject: Option<String>,
-        /// The message content
-        #[arg(short, long)]
-        body: Option<String>,
-        /// Path to files to attach (can be used multiple times)
-        #[arg(short, long)]
-        attachments: Option<Vec<std::path::PathBuf>>,
-    },
 }
 
 #[derive(Subcommand)]

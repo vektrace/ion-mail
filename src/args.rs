@@ -52,7 +52,7 @@ pub enum AccountOperation {
     /// Update specific details like the name or server. If no flags are
     /// provided, the currently active account will be edited.
     Edit {
-        /// The  of the account to edit
+        /// The ID or email of the account to edit
         #[arg(short, long)]
         account: Option<String>,
     },
@@ -94,11 +94,11 @@ pub enum MailOperation {
     /// View the full content of a specific email
     ///
     /// This command fetches the entire message (sender, subject, body) from
-    /// the server using the index number provided by the 'mail list' command.
+    /// the server using the index number provided by the 'folder view' command.
     Read {
         /// The folder where the email is located
         folder: String,
-        /// The index number shown next to the email in 'mail list'
+        /// The index number shown next to the email in 'folder view'
         id: u32,
     },
     /// Download the attachment(s) of a specific email
@@ -109,7 +109,7 @@ pub enum MailOperation {
     Download {
         /// The folder where the email is located
         folder: String,
-        /// The index number shown next to the email in 'mail list'
+        /// The index number shown next to the email in 'folder view'
         id: u32,
         /// The index number shown next to the attachments when viewing an email
         #[arg(short, long, value_delimiter = ',')]
@@ -119,7 +119,7 @@ pub enum MailOperation {
     },
     /// Search for messages matching a specific sender or query
     ///
-    /// This command performs a server-side search of your mail.
+    /// This command performs a client-side search of your mail.
     /// It scans headers, subjects, and body content to find
     /// relevant matches.
     Search {

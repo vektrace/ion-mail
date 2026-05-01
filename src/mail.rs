@@ -53,54 +53,153 @@ pub fn send(
         }
     };
     // also have to do like all checks and if only some are done still open interactively
-    let mail_components = if let Some(to) = to
-        && let Some(subject) = subject
-        && let Some(body) = body
+    let mail_components = if let Some(ref to) = to
+        && let Some(ref subject) = subject
+        && let Some(ref body) = body
     {
-        (to, subject, body, attachments)
-    } else {
-        let to_joined: String = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Enter the recipients of the email (separated by spaces)")
-            .validate_with(|input: &String| -> Result<(), &str> {
-                if input.is_empty() {
-                    Err("Recipients cannot be empty")
-                } else {
-                    Ok(())
+        let mut paths = Vec::new();
+
+        if let Some(attachments) = attachments {
+            for attachment_path in attachments.iter() {
+                let attachment = attachment_path
+                    .clone()
+                    .into_os_string()
+                    .into_string()
+                    .unwrap();
+                if !attachment.is_empty() {
+                    let expanded = shellexpand::tilde(&attachment).to_string();
+                    if PathBuf::from(expanded.clone()).exists() {
+                        if PathBuf::from(expanded.clone()).is_file() {
+                            match PathBuf::from(expanded).canonicalize() {
+                                Ok(p) => paths.push(p),
+                                Err(e) => {
+                                    eprintln!("Unexpected Error: {}", e);
+                                    process::exit(1);
+                                }
+                            }
+                        } else {
+                            eprintln!("Path is not a file");
+                            process::exit(1);
+                        }
+                    } else {
+                        eprintln!("Path does not exist");
+                        process::exit(1);
+                    }
                 }
-            })
-            .interact()
-            .unwrap();
+            }
+        }
 
-        let to: Vec<String> = to_joined.split(' ').map(|n| n.to_string()).collect();
+        let final_paths = if paths.is_empty() { None } else { Some(paths) };
 
-        let subject: String = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Enter the subject of the email")
-            .interact()
-            .unwrap();
-
-        let body = if let Some(body) = Editor::new().edit("Enter the body of the email").unwrap() {
-            body
+        (
+            to.to_vec(),
+            subject.to_string(),
+            body.to_string(),
+            final_paths,
+        )
+    } else {
+        let to: Vec<String> = if let Some(ref to) = to {
+            to.to_vec()
         } else {
-            eprintln!("Body cannot be empty");
-            process::exit(1);
+            let to_joined: String = Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("Enter the recipients of the email (separated by spaces)")
+                .validate_with(|input: &String| -> Result<(), &str> {
+                    if input.is_empty() {
+                        Err("Recipients cannot be empty")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()
+                .unwrap();
+
+            to_joined
+                .split(' ')
+                .map(|n| n.to_string())
+                .collect::<Vec<String>>()
+        };
+
+        let subject: String = if let Some(ref subject) = subject {
+            subject.to_string()
+        } else {
+            Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("Enter the subject of the email")
+                .interact()
+                .unwrap()
+        };
+
+        let body = if let Some(ref body) = body {
+            body.to_string()
+        } else {
+            let edited = match Editor::new().edit("Enter the body of the email") {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to open Editor: ({}), Maybe the EDITOR environment variable is not set?",
+                        e
+                    );
+                    process::exit(1);
+                }
+            };
+            let b = if let Some(body) = edited {
+                body
+            } else {
+                eprintln!("Body cannot be empty");
+                process::exit(1);
+            };
+            b
         };
 
         let mut paths = Vec::new();
+
+        if let Some(attachments) = attachments {
+            for attachment_path in attachments.iter() {
+                let attachment = attachment_path
+                    .clone()
+                    .into_os_string()
+                    .into_string()
+                    .unwrap();
+                if !attachment.is_empty() {
+                    let expanded = shellexpand::tilde(&attachment).to_string();
+                    if PathBuf::from(expanded.clone()).exists() {
+                        if PathBuf::from(expanded.clone()).is_file() {
+                            match PathBuf::from(expanded).canonicalize() {
+                                Ok(p) => paths.push(p),
+                                Err(e) => {
+                                    eprintln!("Unexpected Error: {}", e);
+                                    process::exit(1);
+                                }
+                            }
+                        } else {
+                            eprintln!("Path is not a file");
+                            process::exit(1);
+                        }
+                    } else {
+                        eprintln!("Path does not exist");
+                        process::exit(1);
+                    }
+                }
+            }
+        }
 
         loop {
             let input: String = Input::new()
                 .with_prompt("Enter a path (or leave blank to finish)")
                 .allow_empty(true)
                 .validate_with(|input: &String| -> Result<(), &str> {
-                    let expanded = shellexpand::tilde(input).to_string();
-                    if PathBuf::from(expanded.clone()).exists() {
-                        if PathBuf::from(expanded.clone()).is_file() {
-                            Ok(())
+                    if !input.is_empty() {
+                        let expanded = shellexpand::tilde(input).to_string();
+                        if PathBuf::from(expanded.clone()).exists() {
+                            if PathBuf::from(expanded.clone()).is_file() {
+                                Ok(())
+                            } else {
+                                Err("Path is not a file")
+                            }
                         } else {
-                            Err("Path is not a file")
+                            Err("Path does not exist")
                         }
                     } else {
-                        Err("Path does not exist")
+                        Ok(())
                     }
                 })
                 .interact_text()
@@ -109,8 +208,14 @@ pub fn send(
             if input.is_empty() {
                 break;
             }
-            if let Ok(input) = PathBuf::from(input).canonicalize() {
-                paths.push(input);
+
+            let expanded = shellexpand::tilde(&input).to_string();
+            match PathBuf::from(expanded).canonicalize() {
+                Ok(p) => paths.push(p),
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    process::exit(1);
+                }
             }
         }
 
@@ -221,15 +326,22 @@ pub fn send(
     if yes || send {
         let creds = Credentials::new(email, password);
 
-        let mailer = SmtpTransport::relay(&smtp.clone())
-            .or_else(|_| SmtpTransport::starttls_relay(&smtp.clone()))
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to connect via TLS or STARTTLS: {}", e);
-                process::exit(1);
-            })
-            .credentials(creds)
-            .port(smtp_port)
-            .build();
+        let mailer = match smtp_port {
+            465 => match SmtpTransport::relay(&smtp.clone()) {
+                Ok(t) => t.credentials(creds).port(smtp_port).build(),
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    process::exit(1);
+                }
+            },
+            _ => match SmtpTransport::starttls_relay(&smtp.clone()) {
+                Ok(t) => t.credentials(creds).port(smtp_port).build(),
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    process::exit(1);
+                }
+            },
+        };
 
         match mailer.send(&final_message) {
             Ok(_) => println!("Email sent"),
@@ -346,10 +458,37 @@ pub fn read(config: Config, folder: String, id: u32) {
     let plain_body = find_plain_text(&parsed);
 
     let body = match (html_body, plain_body) {
-        (Some(html), _) => {
+        (Some(html), Some(plain)) => {
             let md = html2md::parse_html(&html);
             let skin = MadSkin::default();
-            skin.term_text(&md).to_string()
+
+            let original_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+
+            let result = std::panic::catch_unwind(|| skin.term_text(&md).to_string());
+
+            std::panic::set_hook(original_hook);
+
+            match result {
+                Ok(term_md) => term_md,
+                Err(_) => plain,
+            }
+        }
+        (Some(html), None) => {
+            let md = html2md::parse_html(&html);
+            let skin = MadSkin::default();
+
+            let original_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+
+            let result = std::panic::catch_unwind(|| skin.term_text(&md).to_string());
+
+            std::panic::set_hook(original_hook);
+
+            match result {
+                Ok(term_md) => term_md,
+                Err(_) => md,
+            }
         }
         (None, Some(plain)) => plain,
         (None, None) => " (No content) ".to_string(),
@@ -671,6 +810,11 @@ pub fn search(config: Config, query: String, folder: String) {
         }
     }
 
+    if results.is_empty() {
+        println!("No results found");
+        process::exit(0);
+    }
+
     let selection = Select::with_theme(&ColorfulTheme::default())
         .default(0)
         .items(&results.iter().map(|n| n.0.clone()).collect::<Vec<String>>())
@@ -773,54 +917,54 @@ pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
 pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
     let mut imap_session = auth(config);
 
-    if Confirm::with_theme(&ColorfulTheme::default())
-        .with_prompt("Are you sure you want to delete mail?")
-        .default(true)
-        .show_default(true)
-        .wait_for_newline(true)
-        .interact()
-        .unwrap()
-    {
-        match imap_session.select(&folder) {
-            Ok(_) => {}
+    match imap_session.select(&folder) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Failed to select folder: {}", e);
+            process::exit(1);
+        }
+    }
+
+    if let Some(id) = id {
+        let mails = match imap_session.fetch("1:*", "(UID)") {
+            Ok(m) => m,
             Err(e) => {
-                eprintln!("Failed to select folder: {}", e);
+                eprintln!("Unexpected Error: {}", e);
                 process::exit(1);
             }
+        };
+
+        let mut current_id = 0;
+        let mut found_ids = Vec::new();
+
+        for mail in mails.iter().rev() {
+            if id.contains(&current_id) {
+                if let Some(uid) = mail.uid {
+                    found_ids.push(uid);
+                }
+            }
+            current_id += 1;
         }
 
-        if let Some(id) = id {
-            let mails = match imap_session.fetch("1:*", "(UID)") {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    process::exit(1);
-                }
-            };
+        if found_ids.len() != id.len() {
+            eprintln!(
+                "Mail with ID {} could not be found",
+                id.iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+            process::exit(1);
+        }
 
-            let mut current_id = 0;
-            let mut found_ids = Vec::new();
-
-            for mail in mails.iter().rev() {
-                if id.contains(&current_id) {
-                    if let Some(uid) = mail.uid {
-                        found_ids.push(uid);
-                    }
-                }
-                current_id += 1;
-            }
-
-            if found_ids.len() != id.len() {
-                eprintln!(
-                    "Mail with ID {} could not be found",
-                    id.iter()
-                        .map(|n| n.to_string())
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                );
-                process::exit(1);
-            }
-
+        if Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Are you sure you want to delete mail?")
+            .default(true)
+            .show_default(true)
+            .wait_for_newline(true)
+            .interact()
+            .unwrap()
+        {
             let uid_set = found_ids
                 .iter()
                 .map(|n| n.to_string())
@@ -841,97 +985,106 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
                     process::exit(1);
                 }
             }
-        } else {
-            let mails = match imap_session.fetch("1:*", "(UID, BODY.PEEK[HEADER])") {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    process::exit(1);
-                }
-            };
-
-            let mut current_id = 0;
-            let mut messages: Vec<String> = Vec::new();
-
-            for mail in mails.iter().rev() {
-                if let Some(header_bytes) = mail.header() {
-                    let (parsed_headers, _) = match mailparse::parse_headers(header_bytes) {
-                        Ok(parsed) => parsed,
-                        Err(e) => {
-                            eprintln!("Failed to parse headers: {}", e);
-                            process::exit(1);
-                        }
-                    };
-
-                    let mut subject = String::new();
-                    let mut from = String::new();
-                    let mut date = String::new();
-
-                    for header in parsed_headers {
-                        let key = header.get_key().to_lowercase();
-                        let value = header.get_value();
-
-                        match key.as_str() {
-                            "subject" => subject = value,
-                            "from" => from = value,
-                            "date" => date = value,
-                            _ => {}
-                        }
-                    }
-
-                    let parsed_date = match DateTime::parse_from_rfc2822(&date) {
-                        Ok(d) => d.with_timezone(&Local),
-                        Err(e) => {
-                            eprintln!("Failed to parse date: {}", e);
-                            process::exit(1);
-                        }
-                    };
-
-                    messages.push(format!(
-                        "[{:03}] {} | {} | {}",
-                        current_id,
-                        subject,
-                        from,
-                        parsed_date.format("%Y-%m-%d %I:%M:%S %p")
-                    ));
-
-                    current_id += 1;
-                }
+        }
+    } else {
+        let mails = match imap_session.fetch("1:*", "(UID BODY.PEEK[HEADER])") {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
             }
+        };
 
-            if !messages.is_empty() {
-                let selection = MultiSelect::with_theme(&ColorfulTheme::default())
-                    .items(&messages)
-                    .max_length(20)
-                    .interact_opt()
-                    .unwrap();
+        let mut current_id = 0;
+        let mut messages: Vec<String> = Vec::new();
 
-                if let Some(selection) = selection {
-                    let mut current_id = 0;
-                    let mut found_ids = Vec::new();
-
-                    for mail in mails.iter().rev() {
-                        if selection.contains(&current_id) {
-                            if let Some(uid) = mail.uid {
-                                found_ids.push(uid);
-                            }
-                        }
-                        current_id += 1;
-                    }
-
-                    if found_ids.len() != selection.len() {
-                        // should not be possible
-                        eprintln!(
-                            "Mail with ID {} could not be found",
-                            selection
-                                .iter()
-                                .map(|n| n.to_string())
-                                .collect::<Vec<String>>()
-                                .join(", ")
-                        );
+        for mail in mails.iter().rev() {
+            if let Some(header_bytes) = mail.header() {
+                let (parsed_headers, _) = match mailparse::parse_headers(header_bytes) {
+                    Ok(parsed) => parsed,
+                    Err(e) => {
+                        eprintln!("Failed to parse headers: {}", e);
                         process::exit(1);
                     }
+                };
 
+                let mut subject = String::new();
+                let mut from = String::new();
+                let mut date = String::new();
+
+                for header in parsed_headers {
+                    let key = header.get_key().to_lowercase();
+                    let value = header.get_value();
+
+                    match key.as_str() {
+                        "subject" => subject = value,
+                        "from" => from = value,
+                        "date" => date = value,
+                        _ => {}
+                    }
+                }
+
+                let parsed_date = match DateTime::parse_from_rfc2822(&date) {
+                    Ok(d) => d.with_timezone(&Local),
+                    Err(e) => {
+                        eprintln!("Failed to parse date: {}", e);
+                        process::exit(1);
+                    }
+                };
+
+                messages.push(format!(
+                    "[{:03}] {} | {} | {}",
+                    current_id,
+                    subject,
+                    from,
+                    parsed_date.format("%Y-%m-%d %I:%M:%S %p")
+                ));
+
+                current_id += 1;
+            }
+        }
+
+        if !messages.is_empty() {
+            let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+                .items(&messages)
+                .max_length(20)
+                .interact_opt()
+                .unwrap();
+
+            if let Some(selection) = selection {
+                let mut current_id = 0;
+                let mut found_ids = Vec::new();
+
+                for mail in mails.iter().rev() {
+                    if selection.contains(&current_id) {
+                        if let Some(uid) = mail.uid {
+                            found_ids.push(uid);
+                        }
+                    }
+                    current_id += 1;
+                }
+
+                if found_ids.len() != selection.len() {
+                    // should not be possible
+                    eprintln!(
+                        "Mail with ID {} could not be found",
+                        selection
+                            .iter()
+                            .map(|n| n.to_string())
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    );
+                    process::exit(1);
+                }
+
+                if Confirm::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Are you sure you want to delete mail?")
+                    .default(true)
+                    .show_default(true)
+                    .wait_for_newline(true)
+                    .interact()
+                    .unwrap()
+                {
                     let uid_set = found_ids
                         .iter()
                         .map(|n| n.to_string())
@@ -954,16 +1107,17 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
                         }
                     }
                 }
-            } else {
-                println!("Folder {} is empty", folder);
             }
+            println!("Mail deleted successfully");
+        } else {
+            println!("Folder {} is empty", folder);
         }
+    }
 
-        match imap_session.logout() {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Logout failed, ignoring... ({})", e);
-            }
+    match imap_session.logout() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Logout failed, ignoring... ({})", e);
         }
     }
 }

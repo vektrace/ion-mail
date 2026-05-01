@@ -2,6 +2,17 @@
 name = "ion-mail"
 version = "0.1.0"
 edition = "2024"
+homepage = "https://paul8711gamezz.org"
+description = "A simple mail CLI"
+authors = ["Paul8711gamezz"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/Paulprojects8711/ion-mail"
+
+[package.metadata.wix]
+upgrade-guid = "E939105E-8B38-4C78-80D6-65E9FB114071"
+path-guid = "017A142D-3D40-45FD-8FF2-C54C1A05F96C"
+license = false
+eula = false
 
 [dependencies]
 chrono = "0.4.44"
@@ -23,3 +34,8 @@ shellexpand = "3.1.2"
 strip_markdown = "0.2.0"
 termimad = "0.34.1"
 toml = "1.1.2"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

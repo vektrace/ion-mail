@@ -5,6 +5,6 @@ Heavyweight CLI email client (in Rust)
 
 Please report any bugs you find, some cannot be fixed because they are server related.
 
-Also see the wiki (here or on my website)
+Check out the wiki!
 
 Feel free to add features (like OAUTH) by creating a pull request

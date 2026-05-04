@@ -326,21 +326,13 @@ pub fn send(
     if yes || send {
         let creds = Credentials::new(email, password);
 
-        let mailer = match smtp_port {
-            465 => match SmtpTransport::relay(&smtp.clone()) {
-                Ok(t) => t.credentials(creds).port(smtp_port).build(),
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    process::exit(1);
-                }
-            },
-            _ => match SmtpTransport::starttls_relay(&smtp.clone()) {
-                Ok(t) => t.credentials(creds).port(smtp_port).build(),
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    process::exit(1);
-                }
-            },
+        let mailer = if let Ok(mailer) = SmtpTransport::relay(&smtp.clone()) {
+            mailer.credentials(creds).port(smtp_port).build()
+        } else if let Ok(mailer) = SmtpTransport::starttls_relay(&smtp.clone()) {
+            mailer.credentials(creds).port(smtp_port).build()
+        } else {
+            eprintln!("Failed to connect via TLS and STARTTLS");
+            process::exit(1);
         };
 
         match mailer.send(&final_message) {

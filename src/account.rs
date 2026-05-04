@@ -50,22 +50,22 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
 
     let tls = native_tls::TlsConnector::builder().build().unwrap();
 
-    let client = imap::connect(
+    let client = if let Ok(client) = imap::connect(
         (use_account.imap.clone(), use_account.imap_port),
         &use_account.imap,
         &tls,
-    )
-    .or_else(|_| {
-        imap::connect_starttls(
-            (use_account.imap.clone(), use_account.imap_port),
-            &use_account.imap,
-            &tls,
-        )
-    })
-    .unwrap_or_else(|e| {
-        eprintln!("Failed to connect via TLS or STARTTLS: {}", e);
+    ) {
+        client
+    } else if let Ok(client) = imap::connect_starttls(
+        (use_account.imap.clone(), use_account.imap_port),
+        &use_account.imap,
+        &tls,
+    ) {
+        client
+    } else {
+        eprintln!("Failed to connect via TLS and STARTTLS");
         process::exit(1);
-    });
+    };
 
     match client.login(use_account.email, password) {
         Ok(s) => {
@@ -174,12 +174,16 @@ pub fn add(toml_path: &str, old_config: Config) {
         .validate_with(|input: &String| -> Result<(), String> {
             let tls = native_tls::TlsConnector::builder().build().unwrap();
 
-            let client = imap::connect((imap.clone(), imap_port), &imap, &tls)
-                .or_else(|_| imap::connect_starttls((imap.clone(), imap_port), &imap, &tls))
-                .unwrap_or_else(|e| {
-                    eprintln!("Failed to connect via TLS or STARTTLS: {}", e);
-                    process::exit(1);
-                });
+            let client = if let Ok(client) = imap::connect((imap.clone(), imap_port), &imap, &tls) {
+                client
+            } else if let Ok(client) =
+                imap::connect_starttls((imap.clone(), imap_port), &imap, &tls)
+            {
+                client
+            } else {
+                eprintln!("Failed to connect via TLS and STARTTLS");
+                process::exit(1);
+            };
 
             match client.login(mail.clone(), input) {
                 Ok(_session) => return Ok(()),
@@ -479,22 +483,22 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     .validate_with(|input: &String| -> Result<(), String> {
                         let tls = native_tls::TlsConnector::builder().build().unwrap();
 
-                        let client = imap::connect(
+                        let client = if let Ok(client) = imap::connect(
                             (account_edit.imap.clone(), account_edit.imap_port),
                             &account_edit.imap,
                             &tls,
-                        )
-                        .or_else(|_| {
-                            imap::connect_starttls(
-                                (account_edit.imap.clone(), account_edit.imap_port),
-                                &account_edit.imap,
-                                &tls,
-                            )
-                        })
-                        .unwrap_or_else(|e| {
-                            eprintln!("Failed to connect via TLS or STARTTLS: {}", e);
+                        ) {
+                            client
+                        } else if let Ok(client) = imap::connect_starttls(
+                            (account_edit.imap.clone(), account_edit.imap_port),
+                            &account_edit.imap,
+                            &tls,
+                        ) {
+                            client
+                        } else {
+                            eprintln!("Failed to connect via TLS and STARTTLS");
                             process::exit(1);
-                        });
+                        };
 
                         match client.login(account_edit.email.clone(), input) {
                             Ok(_session) => return Ok(()),

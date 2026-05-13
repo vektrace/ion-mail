@@ -2,7 +2,6 @@
 name = "ion-mail"
 version = "0.1.0"
 edition = "2024"
-homepage = "https://paul8711gamezz.org"
 description = "A simple mail CLI"
 authors = ["Paul8711gamezz <support@paul8711gamezz.org>"]
 license = "AGPL-3.0-only"

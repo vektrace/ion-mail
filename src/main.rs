@@ -72,6 +72,15 @@ fn main() {
         };
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        keyring_core::set_default_store(windows_native_keyring_store::Store::new().unwrap());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        keyring_core::set_default_store(zbus_secret_service_keyring_store::Store::new().unwrap());
+    }
+
     let args = Cli::parse();
 
     match args.resource {
@@ -118,4 +127,5 @@ fn main() {
             FolderOperation::Empty { name } => folder::empty(config, name),
         },
     }
+    keyring_core::unset_default_store();
 }

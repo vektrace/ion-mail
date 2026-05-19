@@ -11,6 +11,7 @@ pub fn list(config: Config, stats: bool) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -31,6 +32,7 @@ pub fn list(config: Config, stats: bool) {
                             mailbox.name(),
                             e
                         );
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 };
@@ -64,6 +66,7 @@ pub fn view(config: Config, folder: String, page_size: usize) {
         Ok(_) => {}
         Err(e) => {
             eprintln!("Failed to select folder: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     }
@@ -72,6 +75,7 @@ pub fn view(config: Config, folder: String, page_size: usize) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Failed to fetch messages: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -86,6 +90,7 @@ pub fn view(config: Config, folder: String, page_size: usize) {
                 Ok(p) => p,
                 Err(e) => {
                     eprintln!("Failed to parse headers: {}", e);
+                    keyring_core::unset_default_store();
                     process::exit(1);
                 }
             };
@@ -110,6 +115,7 @@ pub fn view(config: Config, folder: String, page_size: usize) {
                 Ok(p) => p.with_timezone(&Local),
                 Err(e) => {
                     eprintln!("Failed to parse date: {}", e);
+                    keyring_core::unset_default_store();
                     process::exit(1);
                 }
             };
@@ -147,6 +153,7 @@ pub fn view(config: Config, folder: String, page_size: usize) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("Unexpected Error: {}", e);
+                    keyring_core::unset_default_store();
                     process::exit(1);
                 }
             };
@@ -164,6 +171,7 @@ pub fn create(config: Config, name: String, parents: bool) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -224,6 +232,7 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 };
@@ -288,6 +297,7 @@ pub fn empty(config: Config, name: String) {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("Failed to select folder: {}", e);
+                keyring_core::unset_default_store();
                 process::exit(1);
             }
         }
@@ -296,6 +306,7 @@ pub fn empty(config: Config, name: String) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("Unexpected Error: {}", e);
+                keyring_core::unset_default_store();
                 process::exit(1);
             }
         };
@@ -308,6 +319,7 @@ pub fn empty(config: Config, name: String) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("Unexpected Error: {}", e);
+                    keyring_core::unset_default_store();
                     process::exit(1);
                 }
             }
@@ -318,6 +330,7 @@ pub fn empty(config: Config, name: String) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("Unexpected Error: {}", e);
+                    keyring_core::unset_default_store();
                     process::exit(1);
                 }
             }

@@ -2,7 +2,7 @@ use crate::{APP_NAME, Account, Config};
 
 use dialoguer::{Confirm, Input, Password, Select, theme::ColorfulTheme};
 use email_address::EmailAddress;
-use keyring::Entry;
+use keyring_core::Entry;
 use std::fs;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process;
@@ -30,13 +30,15 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
 
     if !found {
         println!("No account is currently active");
-        process::exit(0);
+        keyring_core::unset_default_store();
+        process::exit(1);
     }
 
     let entry = match Entry::new(APP_NAME, &use_account.id.to_string()) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -44,6 +46,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to get password: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -64,6 +67,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
         client
     } else {
         eprintln!("Failed to connect via TLS and STARTTLS");
+        keyring_core::unset_default_store();
         process::exit(1);
     };
 
@@ -73,6 +77,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
         }
         Err((e, _orig_client)) => {
             eprintln!("Login failed: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     }
@@ -81,6 +86,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
 pub fn add(toml_path: &str, old_config: Config) {
     if old_config.accounts.len() >= (u32::MAX - 10).try_into().unwrap() {
         eprintln!("Too many accounts registered, remove some then try again");
+        keyring_core::unset_default_store();
         process::exit(1);
     }
     let smtp: String = Input::with_theme(&ColorfulTheme::default())
@@ -182,6 +188,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 client
             } else {
                 eprintln!("Failed to connect via TLS and STARTTLS");
+                keyring_core::unset_default_store();
                 process::exit(1);
             };
 
@@ -209,6 +216,7 @@ pub fn add(toml_path: &str, old_config: Config) {
             && item.imap_port == imap_port
         {
             eprintln!("Account already exists");
+            keyring_core::unset_default_store();
             process::exit(1);
         }
         if item.active {
@@ -218,6 +226,7 @@ pub fn add(toml_path: &str, old_config: Config) {
             new_id = item.id + 1;
             if new_id >= (u32::MAX - 10).try_into().unwrap() {
                 eprintln!("ID too large");
+                keyring_core::unset_default_store();
                 process::exit(1);
             }
         }
@@ -241,6 +250,7 @@ pub fn add(toml_path: &str, old_config: Config) {
         Ok(toml) => toml,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -248,6 +258,7 @@ pub fn add(toml_path: &str, old_config: Config) {
         Ok(_) => {}
         Err(e) => {
             eprintln!("Error when saving new config: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     }
@@ -256,6 +267,7 @@ pub fn add(toml_path: &str, old_config: Config) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -263,6 +275,7 @@ pub fn add(toml_path: &str, old_config: Config) {
         Ok(_) => {}
         Err(e) => {
             eprintln!("Failed to set password: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -305,6 +318,7 @@ pub fn switch(toml_path: &str, config: Config, account: String) {
         }
         if !found {
             eprintln!("Account with ID {} could not be found", id);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     } else {
@@ -329,6 +343,7 @@ pub fn switch(toml_path: &str, config: Config, account: String) {
         Ok(toml) => toml,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -336,6 +351,7 @@ pub fn switch(toml_path: &str, config: Config, account: String) {
         Ok(_) => {}
         Err(e) => {
             eprintln!("Error when saving new config: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     }
@@ -405,6 +421,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
 
             if !found {
                 println!("Account with ID {} could not be found", id);
+                keyring_core::unset_default_store();
                 process::exit(1);
             }
         } else {
@@ -419,6 +436,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
 
             if !found {
                 println!("Account with email {} could not be found", account);
+                keyring_core::unset_default_store();
                 process::exit(1);
             }
         }
@@ -434,6 +452,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
 
         if !found {
             println!("No account is currently active");
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     }
@@ -442,6 +461,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -449,6 +469,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to get password: {}", e);
+            keyring_core::unset_default_store();
             process::exit(1);
         }
     };
@@ -497,6 +518,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             client
                         } else {
                             eprintln!("Failed to connect via TLS and STARTTLS");
+                            keyring_core::unset_default_store();
                             process::exit(1);
                         };
 
@@ -592,6 +614,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     Ok(toml) => toml,
                     Err(e) => {
                         eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 };
@@ -599,6 +622,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Error when saving new config: {}", e);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 };
@@ -607,6 +631,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Failed to set password: {}", e);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 }
@@ -618,6 +643,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     Ok(toml) => toml,
                     Err(e) => {
                         eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 };
@@ -625,6 +651,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Error when saving new config: {}", e);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 };
@@ -633,6 +660,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Failed to set password: {}", e);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     }
                 }
@@ -676,6 +704,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                             Ok(e) => e,
                             Err(e) => {
                                 eprintln!("Unexpected Error: {}", e);
+                                keyring_core::unset_default_store();
                                 process::exit(1);
                             }
                         };
@@ -683,6 +712,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                             Ok(_) => {}
                             Err(e) => {
                                 eprintln!("Error when deleting credential: {}", e);
+                                keyring_core::unset_default_store();
                                 process::exit(1);
                             }
                         }
@@ -698,6 +728,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                             Ok(e) => e,
                             Err(e) => {
                                 eprintln!("Unexpected Error: {}", e);
+                                keyring_core::unset_default_store();
                                 process::exit(1);
                             }
                         };
@@ -705,6 +736,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                             Ok(_) => {}
                             Err(e) => {
                                 eprintln!("Error when deleting credential: {}", e);
+                                keyring_core::unset_default_store();
                                 process::exit(1);
                             }
                         }
@@ -724,6 +756,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                         Ok(e) => e,
                         Err(e) => {
                             eprintln!("Unexpected Error: {}", e);
+                            keyring_core::unset_default_store();
                             process::exit(1);
                         }
                     };
@@ -731,6 +764,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                         Ok(_) => {}
                         Err(e) => {
                             eprintln!("Error when deleting credential: {}", e);
+                            keyring_core::unset_default_store();
                             process::exit(1);
                         }
                     }
@@ -754,6 +788,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                 Ok(toml) => toml,
                 Err(e) => {
                     eprintln!("Unexpected Error: {}", e);
+                    keyring_core::unset_default_store();
                     process::exit(1);
                 }
             };
@@ -761,6 +796,7 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("Error when saving new config: {}", e);
+                    keyring_core::unset_default_store();
                     process::exit(1);
                 }
             }

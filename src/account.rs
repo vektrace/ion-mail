@@ -31,7 +31,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
     if !found {
         println!("No account is currently active");
         keyring_core::unset_default_store();
-        process::exit(1);
+        process::exit(0);
     }
 
     let entry = match Entry::new(APP_NAME, &use_account.id.to_string()) {

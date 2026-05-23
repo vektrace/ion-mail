@@ -29,7 +29,7 @@ pub enum AccountOperation {
     Add,
     /// List all configured accounts
     ///
-    /// Displays a list all configured accounts.
+    /// Displays a list of all configured accounts.
     /// The currently active account (used by default for mail commands)
     /// will be highlighted.
     #[command(alias = "ls")]

@@ -35,8 +35,8 @@ pub fn send(
             found = true;
             id = account.id;
             email = account.email;
-            smtp = account.smtp;
-            smtp_port = account.smtp_port;
+            smtp = account.smtp.host;
+            smtp_port = account.smtp.port;
         }
     }
 
@@ -147,14 +147,13 @@ pub fn send(
                     process::exit(1);
                 }
             };
-            let b = if let Some(body) = edited {
+            if let Some(body) = edited {
                 body
             } else {
                 eprintln!("Body cannot be empty");
                 keyring_core::unset_default_store();
                 process::exit(1);
-            };
-            b
+            }
         };
 
         let mut paths = Vec::new();
@@ -267,10 +266,10 @@ pub fn send(
         for attachment in attachments {
             if attachment.as_path().is_file() {
                 let name = attachment.as_path().file_name();
-                let guess = mime_guess::from_path(&attachment.as_path()).first_or_octet_stream();
+                let guess = mime_guess::from_path(attachment.as_path()).first_or_octet_stream();
                 let content_type =
                     ContentType::parse(&format!("{}/{}", guess.type_(), guess.subtype())).unwrap();
-                let filebody = match fs::read(&attachment.as_path()) {
+                let filebody = match fs::read(attachment.as_path()) {
                     Ok(b) => b,
                     Err(e) => {
                         eprintln!("Unexpected Error: {}", e);
@@ -412,14 +411,12 @@ pub fn read(config: Config, folder: String, id: u32) {
         }
     };
 
-    let mut current_id = 0;
     let mut found = false;
 
-    for _mail in mails.iter().rev() {
-        if current_id == id {
+    for (current_id, _mail) in mails.iter().rev().enumerate() {
+        if current_id == id as usize {
             found = true;
         }
-        current_id += 1;
     }
 
     if !found {
@@ -609,14 +606,12 @@ pub fn download(
         }
     };
 
-    let mut current_id = 0;
     let mut found = false;
 
-    for _mail in mails.iter().rev() {
-        if current_id == id {
+    for (current_id, _mail) in mails.iter().rev().enumerate() {
+        if current_id == id as usize {
             found = true;
         }
-        current_id += 1;
     }
 
     if !found {
@@ -741,9 +736,7 @@ pub fn search(config: Config, query: String, folder: String) {
             }
         };
 
-        let mut current_id = 0;
-
-        for mail in fetch.iter().rev() {
+        for (current_id, mail) in fetch.iter().rev().enumerate() {
             let parsed = match mailparse::parse_mail(mail.body().unwrap()) {
                 Ok(p) => p,
                 Err(e) => {
@@ -761,7 +754,7 @@ pub fn search(config: Config, query: String, folder: String) {
                 .headers
                 .get_first_value("From")
                 .unwrap_or_else(|| "".to_string());
-            let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
+            let body = find_plain_text(&parsed).unwrap_or_default();
 
             if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
                 results.push((
@@ -769,7 +762,6 @@ pub fn search(config: Config, query: String, folder: String) {
                     folder.clone(),
                 ));
             }
-            current_id += 1;
         }
     } else {
         let mailboxes = match imap_session.list(None, Some("*")) {
@@ -782,7 +774,7 @@ pub fn search(config: Config, query: String, folder: String) {
         };
 
         for mailbox in mailboxes.iter() {
-            match imap_session.select(&mailbox.name()) {
+            match imap_session.select(mailbox.name()) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("Failed to select folder: {}", e);
@@ -800,9 +792,7 @@ pub fn search(config: Config, query: String, folder: String) {
                 }
             };
 
-            let mut current_id = 0;
-
-            for mail in fetch.iter().rev() {
+            for (current_id, mail) in fetch.iter().rev().enumerate() {
                 let parsed = match mailparse::parse_mail(mail.body().unwrap()) {
                     Ok(p) => p,
                     Err(e) => {
@@ -820,7 +810,7 @@ pub fn search(config: Config, query: String, folder: String) {
                     .headers
                     .get_first_value("From")
                     .unwrap_or_else(|| "".to_string());
-                let body = find_plain_text(&parsed).unwrap_or_else(|| "".to_string());
+                let body = find_plain_text(&parsed).unwrap_or_default();
 
                 if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
                     results.push((
@@ -834,7 +824,6 @@ pub fn search(config: Config, query: String, folder: String) {
                         mailbox.name().to_string(),
                     ));
                 }
-                current_id += 1;
             }
         }
     }
@@ -846,7 +835,7 @@ pub fn search(config: Config, query: String, folder: String) {
 
     let selection = Select::with_theme(&ColorfulTheme::default())
         .default(0)
-        .items(&results.iter().map(|n| n.0.clone()).collect::<Vec<String>>())
+        .items(results.iter().map(|n| n.0.clone()).collect::<Vec<String>>())
         .clear(false)
         .max_length(20)
         .interact_opt()
@@ -902,14 +891,12 @@ pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
             }
         };
 
-        let mut current_id = 0;
         let mut found_ids = Vec::new();
 
-        for _mail in mails.iter().rev() {
-            if id.contains(&current_id) {
+        for (current_id, _mail) in mails.iter().rev().enumerate() {
+            if id.contains(&current_id.try_into().unwrap()) {
                 found_ids.push(current_id);
             }
-            current_id += 1;
         }
 
         if found_ids.len() != id.len() {
@@ -926,7 +913,7 @@ pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
         let max_value = mails.len();
 
         for index in &id {
-            match imap_session.mv(&format!("{}", max_value - (*index as usize)), &to) {
+            match imap_session.mv(format!("{}", max_value - (*index as usize)), &to) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("Unexpected Error: {}", e);
@@ -968,16 +955,14 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
             }
         };
 
-        let mut current_id = 0;
         let mut found_ids = Vec::new();
 
-        for mail in mails.iter().rev() {
-            if id.contains(&current_id) {
-                if let Some(uid) = mail.uid {
-                    found_ids.push(uid);
-                }
+        for (current_id, mail) in mails.iter().rev().enumerate() {
+            if id.contains(&current_id.try_into().unwrap())
+                && let Some(uid) = mail.uid
+            {
+                found_ids.push(uid);
             }
-            current_id += 1;
         }
 
         if found_ids.len() != id.len() {
@@ -1091,16 +1076,14 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
                 .unwrap();
 
             if let Some(selection) = selection {
-                let mut current_id = 0;
                 let mut found_ids = Vec::new();
 
-                for mail in mails.iter().rev() {
-                    if selection.contains(&current_id) {
-                        if let Some(uid) = mail.uid {
-                            found_ids.push(uid);
-                        }
+                for (current_id, mail) in mails.iter().rev().enumerate() {
+                    if selection.contains(&current_id)
+                        && let Some(uid) = mail.uid
+                    {
+                        found_ids.push(uid);
                     }
-                    current_id += 1;
                 }
 
                 if found_ids.len() != selection.len() {

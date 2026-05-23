@@ -21,10 +21,25 @@ pub struct Account {
     pub id: u32, // just in case someone wants to have 4 bil accounts
     pub email: String,
     pub active: bool,
-    pub smtp: String,
-    pub smtp_port: u16,
-    pub imap: String,
-    pub imap_port: u16,
+    pub smtp: Smtp,
+    pub imap: Imap,
+    pub oidc: Option<String>,
+    pub scopes: Option<Vec<String>>,
+    pub token_expiration: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Smtp {
+    pub host: String,
+    pub port: u16,
+    pub security: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Imap {
+    pub host: String,
+    pub port: u16,
+    pub security: String,
 }
 
 fn main() {
@@ -74,11 +89,25 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     {
-        keyring_core::set_default_store(windows_native_keyring_store::Store::new().unwrap());
+        let windows_store = match windows_native_keyring_store::Store::new() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
+        keyring_core::set_default_store(windows_store);
     }
     #[cfg(target_os = "linux")]
     {
-        keyring_core::set_default_store(zbus_secret_service_keyring_store::Store::new().unwrap());
+        let zbus_store = match zbus_secret_service_keyring_store::Store::new() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                process::exit(1);
+            }
+        };
+        keyring_core::set_default_store(zbus_store);
     }
 
     let args = Cli::parse();

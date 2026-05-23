@@ -189,13 +189,13 @@ pub fn create(config: Config, name: String, parents: bool) {
             }
 
             current_folder.push_str(folder);
-            if let Err(_) = imap_session.create(&current_folder) {
+            if imap_session.create(&current_folder).is_err() {
                 eprintln!("Failed to create folder {}", current_folder);
             }
         }
         println!("Successfully created folder {}", name);
     } else {
-        if let Err(_) = imap_session.create(&name) {
+        if imap_session.create(&name).is_err() {
             eprintln!("Failed to create folder {}", name);
         } else {
             println!("Successfully created folder {}", name);
@@ -257,15 +257,14 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
                     if !mailbox
                         .attributes()
                         .contains(&imap::types::NameAttribute::NoSelect)
+                        && imap_session.delete(mailbox.name()).is_err()
                     {
-                        if let Err(_) = imap_session.delete(&mailbox.name()) {
-                            eprintln!("Failed to delete folder {}", mailbox.name());
-                        }
+                        eprintln!("Failed to delete folder {}", mailbox.name());
                     }
                 }
                 println!("Successfully deleted folder {}", name);
             } else {
-                if let Err(_) = imap_session.delete(&name) {
+                if imap_session.delete(&name).is_err() {
                     eprintln!("Failed to delete folder {}", name);
                 } else {
                     println!("Successfully deleted folder {}", name);

@@ -423,9 +423,7 @@ pub fn add(toml_path: &str, old_config: Config) {
     };
     let mut refresh_token = None;
     let mut token_expiration: Option<String> = None;
-    let mut final_client_id = None;
-    let mut password = String::default();
-    let mut new_account = if config_entry.status().is_success() {
+    let (mut new_account, client_id, password) = if config_entry.status().is_success() {
         let config_text = match config_entry.text() {
             Ok(t) => t,
             Err(e) => {
@@ -454,7 +452,7 @@ pub fn add(toml_path: &str, old_config: Config) {
             .with_prompt("Client ID")
             .interact_text()
             .unwrap();
-        final_client_id = Some(client_id.clone());
+        let final_client_id = Some(client_id.clone());
 
         let response = match reqwest::blocking::get(&mail_config.oidc) {
             Ok(r) => r,
@@ -530,7 +528,6 @@ pub fn add(toml_path: &str, old_config: Config) {
         if let Some(token) = token_result.refresh_token() {
             refresh_token = Some(token.clone().into_secret());
         }
-        password = token_result.access_token().clone().into_secret();
         let smtp = Smtp {
             host: smtp_host,
             port: smtp_port,
@@ -541,16 +538,20 @@ pub fn add(toml_path: &str, old_config: Config) {
             port: imap_port,
             security: imap_security,
         };
-        Account {
-            id: 0,
-            email: mail.clone(),
-            active: false,
-            smtp,
-            imap,
-            oidc: Some(oidc),
-            scopes: Some(scopes),
-            token_expiration,
-        }
+        (
+            Account {
+                id: 0,
+                email: mail.clone(),
+                active: false,
+                smtp,
+                imap,
+                oidc: Some(oidc),
+                scopes: Some(scopes),
+                token_expiration,
+            },
+            final_client_id,
+            token_result.access_token().clone().into_secret(),
+        )
     } else {
         let smtp_host: String = Input::with_theme(&ColorfulTheme::default())
             .with_prompt("SMTP Server")
@@ -687,9 +688,9 @@ pub fn add(toml_path: &str, old_config: Config) {
         } else {
             None
         };
-        final_client_id = client_id.clone();
+        let client_id = client_id.clone();
 
-        password = if !oauth2 {
+        let password = if !oauth2 {
             Password::with_theme(&ColorfulTheme::default())
                 .with_prompt("Password")
                 .validate_with(|input: &String| -> Result<(), String> {
@@ -890,16 +891,20 @@ pub fn add(toml_path: &str, old_config: Config) {
             port: imap_port,
             security: imap_security,
         };
-        Account {
-            id: 0,
-            email: mail.clone(),
-            active: false,
-            smtp,
-            imap,
-            oidc,
-            scopes,
-            token_expiration,
-        }
+        (
+            Account {
+                id: 0,
+                email: mail.clone(),
+                active: false,
+                smtp,
+                imap,
+                oidc,
+                scopes,
+                token_expiration,
+            },
+            client_id,
+            password,
+        )
     };
 
     // the plan here: save password as password to keyring and email and other config to a file
@@ -997,7 +1002,7 @@ pub fn add(toml_path: &str, old_config: Config) {
             }
         };
     }
-    if let Some(client_id) = final_client_id {
+    if let Some(client_id) = client_id {
         let client_id_entry = match Entry::new(APP_NAME, &format!("{}.id", &new_id)) {
             Ok(e) => e,
             Err(e) => {

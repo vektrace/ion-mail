@@ -133,7 +133,7 @@ pub enum MailOperation {
         #[arg(short, long, default_value = "INBOX")]
         folder: String,
     },
-    /// Move a message from on folder to another
+    /// Move a message from one folder to another
     ///
     /// This command transfers a specific email between folders on the
     /// server.
@@ -146,7 +146,7 @@ pub enum MailOperation {
         ///
         /// If the folder does not exist, the command will fail.
         to: String,
-        /// The index number(s) of the message to move
+        /// The index number(s) of the message(s) to move
         #[arg(short, long, value_delimiter = ',')]
         id: Vec<u32>,
     },
@@ -179,7 +179,7 @@ pub enum FolderOperation {
         /// Show the number of messages and unread counts for each folder
         ///
         /// Note: Enabling this may take longer as the program must
-        /// query the status of every folder individually.
+        /// query the status of each folder individually.
         #[arg(short, long)]
         stats: bool,
     },

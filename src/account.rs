@@ -160,10 +160,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                         process::exit(1);
                     }
                 };
-            let refresh_token: Option<String> = match refresh_token_entry.get_password() {
-                Ok(r) => Some(r),
-                Err(_) => None,
-            };
+            let refresh_token: Option<String> = refresh_token_entry.get_password().ok();
             let response = match reqwest::blocking::get(&mail_config.oidc) {
                 Ok(r) => r,
                 Err(e) => {
@@ -248,7 +245,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                     }
                 }
                 if let Some(refresh_token) = token_result.refresh_token() {
-                    match refresh_token_entry.set_password(&refresh_token.secret()) {
+                    match refresh_token_entry.set_password(refresh_token.secret()) {
                         Ok(_) => {}
                         Err(e) => {
                             eprintln!("Failed to set password: {}", e);
@@ -258,7 +255,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                     };
                 }
                 // save password
-                match entry.set_password(&token_result.access_token().secret()) {
+                match entry.set_password(token_result.access_token().secret()) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Failed to set password: {}", e);
@@ -335,7 +332,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                     }
                 }
                 if let Some(refresh_token) = token_result.refresh_token() {
-                    match refresh_token_entry.set_password(&refresh_token.secret()) {
+                    match refresh_token_entry.set_password(refresh_token.secret()) {
                         Ok(_) => {}
                         Err(e) => {
                             eprintln!("Failed to set password: {}", e);
@@ -345,7 +342,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                     };
                 }
                 // save password
-                match entry.set_password(&token_result.access_token().secret()) {
+                match entry.set_password(token_result.access_token().secret()) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Failed to set password: {}", e);
@@ -364,10 +361,8 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
 
     let tls = native_tls::TlsConnector::builder().build().unwrap();
 
-    let client = if use_account.imap.security == "SSL".to_string()
-        || use_account.imap.security == "TLS".to_string()
-    {
-        let client = match imap::connect(
+    let client = if use_account.imap.security == "SSL" || use_account.imap.security == "TLS" {
+        match imap::connect(
             (use_account.imap.host.clone(), use_account.imap.port),
             &use_account.imap.host,
             &tls,
@@ -378,10 +373,9 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                 keyring_core::unset_default_store();
                 process::exit(1);
             }
-        };
-        client
-    } else if use_account.imap.security == "STARTTLS".to_string() {
-        let client = match imap::connect_starttls(
+        }
+    } else if use_account.imap.security == "STARTTLS" {
+        match imap::connect_starttls(
             (use_account.imap.host.clone(), use_account.imap.port),
             &use_account.imap.host,
             &tls,
@@ -392,8 +386,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                 keyring_core::unset_default_store();
                 process::exit(1);
             }
-        };
-        client
+        }
     } else {
         eprintln!("Security type not recognized");
         keyring_core::unset_default_store();
@@ -401,9 +394,7 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
     };
 
     match client.login(use_account.email, password) {
-        Ok(s) => {
-            return s;
-        }
+        Ok(s) => s,
         Err((e, _orig_client)) => {
             eprintln!("Login failed: {}", e);
             keyring_core::unset_default_store();
@@ -600,13 +591,11 @@ pub fn add(toml_path: &str, old_config: Config) {
                 move |input: &u16| -> Result<(), String> {
                     let target = format!("{}:{}", smtp_value, input);
 
-                    if let Ok(mut addrs) = target.to_socket_addrs() {
-                        if let Some(address) = addrs.next() {
-                            if TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok()
-                            {
-                                return Ok(());
-                            }
-                        }
+                    if let Ok(mut addrs) = target.to_socket_addrs()
+                        && let Some(address) = addrs.next()
+                        && TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok()
+                    {
+                        return Ok(());
                     }
                     Err(format!("Could not connect to port {}", input))
                 }
@@ -646,13 +635,11 @@ pub fn add(toml_path: &str, old_config: Config) {
                 move |input: &u16| -> Result<(), String> {
                     let target = format!("{}:{}", imap_value, input);
 
-                    if let Ok(mut addrs) = target.to_socket_addrs() {
-                        if let Some(address) = addrs.next() {
-                            if TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok()
-                            {
-                                return Ok(());
-                            }
-                        }
+                    if let Ok(mut addrs) = target.to_socket_addrs()
+                        && let Some(address) = addrs.next()
+                        && TcpStream::connect_timeout(&address, Duration::from_secs(3)).is_ok()
+                    {
+                        return Ok(());
                     }
                     Err(format!("Could not connect to port {}", input))
                 }
@@ -724,9 +711,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                 .validate_with(|input: &String| -> Result<(), String> {
                     let tls = native_tls::TlsConnector::builder().build().unwrap();
 
-                    let client = if imap_security == "SSL".to_string()
-                        || imap_security == "TLS".to_string()
-                    {
+                    let client = if imap_security == "SSL" || imap_security == "TLS" {
                         match imap::connect((imap_host.clone(), imap_port), &imap_host, &tls) {
                             Ok(c) => c,
                             Err(e) => {
@@ -735,7 +720,7 @@ pub fn add(toml_path: &str, old_config: Config) {
                                 process::exit(1);
                             }
                         }
-                    } else if imap_security == "STARTTLS".to_string() {
+                    } else if imap_security == "STARTTLS" {
                         match imap::connect_starttls(
                             (imap_host.clone(), imap_port),
                             &imap_host,
@@ -755,9 +740,9 @@ pub fn add(toml_path: &str, old_config: Config) {
                     };
 
                     match client.login(mail.clone(), input) {
-                        Ok(_session) => return Ok(()),
-                        Err((e, _unauth_client)) => return Err(format!("Error: {}", e)),
-                    };
+                        Ok(_session) => Ok(()),
+                        Err((e, _unauth_client)) => Err(format!("Error: {}", e)),
+                    }
                 })
                 .interact()
                 .unwrap()
@@ -1014,7 +999,7 @@ pub fn add(toml_path: &str, old_config: Config) {
 }
 
 pub fn list(config: Config) {
-    if config.accounts.len() > 0 {
+    if !config.accounts.is_empty() {
         for account in config.accounts {
             println!(
                 "[{id:03}] [{status}] {email}",
@@ -1092,7 +1077,7 @@ pub fn switch(toml_path: &str, config: Config, account: String) {
 }
 
 pub fn whoami(config: Config) {
-    if config.accounts.len() > 0 {
+    if !config.accounts.is_empty() {
         for account in config.accounts {
             if account.active {
                 println!(
@@ -1249,16 +1234,16 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     .unwrap();
             }
             1 => {
-                password = if let None = account_edit.oidc {
+                password = if account_edit.oidc.is_none() {
                     Password::with_theme(&ColorfulTheme::default())
                         .with_prompt("Password")
                         .validate_with(|input: &String| -> Result<(), String> {
                             let tls = native_tls::TlsConnector::builder().build().unwrap();
 
-                            let client = if account_edit.imap.security == "SSL".to_string()
-                                || account_edit.imap.security == "TLS".to_string()
+                            let client = if account_edit.imap.security == "SSL"
+                                || account_edit.imap.security == "TLS"
                             {
-                                let client = match imap::connect(
+                                match imap::connect(
                                     (account_edit.imap.host.clone(), account_edit.imap.port),
                                     &account_edit.imap.host,
                                     &tls,
@@ -1269,10 +1254,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                                         keyring_core::unset_default_store();
                                         process::exit(1);
                                     }
-                                };
-                                client
-                            } else if account_edit.imap.security == "STARTTLS".to_string() {
-                                let client = match imap::connect_starttls(
+                                }
+                            } else if account_edit.imap.security == "STARTTLS" {
+                                match imap::connect_starttls(
                                     (account_edit.imap.host.clone(), account_edit.imap.port),
                                     &account_edit.imap.host,
                                     &tls,
@@ -1283,8 +1267,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                                         keyring_core::unset_default_store();
                                         process::exit(1);
                                     }
-                                };
-                                client
+                                }
                             } else {
                                 eprintln!("Security type not recognized");
                                 keyring_core::unset_default_store();
@@ -1292,9 +1275,9 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             };
 
                             match client.login(account_edit.email.clone(), input) {
-                                Ok(_session) => return Ok(()),
-                                Err((e, _unauth_client)) => return Err(format!("Error: {}", e)),
-                            };
+                                Ok(_session) => Ok(()),
+                                Err((e, _unauth_client)) => Err(format!("Error: {}", e)),
+                            }
                         })
                         .interact()
                         .unwrap()
@@ -1438,7 +1421,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             let target = format!("{}:0", input);
 
                             match target.to_socket_addrs() {
-                                Ok(_) => return Ok(()),
+                                Ok(_) => Ok(()),
                                 Err(_) => Err("Hostname could not be resolved"),
                             }
                         }
@@ -1454,14 +1437,12 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                         move |input: &u16| -> Result<(), String> {
                             let target = format!("{}:{}", smtp_value, input);
 
-                            if let Ok(mut addrs) = target.to_socket_addrs() {
-                                if let Some(address) = addrs.next() {
-                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3))
-                                        .is_ok()
-                                    {
-                                        return Ok(());
-                                    }
-                                }
+                            if let Ok(mut addrs) = target.to_socket_addrs()
+                                && let Some(address) = addrs.next()
+                                && TcpStream::connect_timeout(&address, Duration::from_secs(3))
+                                    .is_ok()
+                            {
+                                return Ok(());
                             }
                             Err(format!("Could not connect to port {}", input))
                         }
@@ -1486,7 +1467,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             let target = format!("{}:0", input);
 
                             match target.to_socket_addrs() {
-                                Ok(_) => return Ok(()),
+                                Ok(_) => Ok(()),
                                 Err(_) => Err("Hostname could not be resolved"),
                             }
                         }
@@ -1502,14 +1483,12 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                         move |input: &u16| -> Result<(), String> {
                             let target = format!("{}:{}", imap_value, input);
 
-                            if let Ok(mut addrs) = target.to_socket_addrs() {
-                                if let Some(address) = addrs.next() {
-                                    if TcpStream::connect_timeout(&address, Duration::from_secs(3))
-                                        .is_ok()
-                                    {
-                                        return Ok(());
-                                    }
-                                }
+                            if let Ok(mut addrs) = target.to_socket_addrs()
+                                && let Some(address) = addrs.next()
+                                && TcpStream::connect_timeout(&address, Duration::from_secs(3))
+                                    .is_ok()
+                            {
+                                return Ok(());
                             }
                             Err(format!("Could not connect to port {}", input))
                         }
@@ -1545,7 +1524,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     }
                 };
 
-                match entry.set_password(&password.as_str()) {
+                match entry.set_password(password.as_str()) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Failed to set password: {}", e);
@@ -1595,7 +1574,7 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                     }
                 };
 
-                match entry.set_password(&password.as_str()) {
+                match entry.set_password(password.as_str()) {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("Failed to set password: {}", e);

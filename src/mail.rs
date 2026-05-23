@@ -1,6 +1,6 @@
-use crate::{APP_NAME, Config, account::auth};
+use crate::{APP_NAME, Account, Config, Endpoints, Imap, MailConfig, Smtp, account::auth};
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use dialoguer::{Confirm, Editor, Input, MultiSelect, Select, theme::ColorfulTheme};
 use keyring_core::Entry;
 use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart, header::ContentType};
@@ -8,6 +8,11 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use mailparse::{DispositionType, MailHeaderMap, ParsedMail};
 use minus::Pager;
+use oauth2::basic::BasicClient;
+use oauth2::{
+    AuthUrl, ClientId, DeviceAuthorizationUrl, RefreshToken, Scope,
+    StandardDeviceAuthorizationResponse, TokenResponse, TokenUrl,
+};
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -25,18 +30,31 @@ pub fn send(
 ) {
     let mut found = false;
 
-    let mut id = 0;
-    let mut email = "".to_string();
-    let mut smtp = "".to_string();
-    let mut smtp_port = 0;
+    let smtp = Smtp {
+        host: "".to_string(),
+        port: 0,
+        security: "".to_string(),
+    };
+    let imap = Imap {
+        host: "".to_string(),
+        port: 0,
+        security: "".to_string(),
+    };
+    let mut use_account = Account {
+        id: 0,
+        email: "".to_string(),
+        active: false,
+        smtp,
+        imap,
+        oidc: None,
+        scopes: None,
+        token_expiration: None,
+    };
 
     for account in config.accounts {
         if account.active {
             found = true;
-            id = account.id;
-            email = account.email;
-            smtp = account.smtp.host;
-            smtp_port = account.smtp.port;
+            use_account = account;
         }
     }
 
@@ -46,7 +64,7 @@ pub fn send(
         process::exit(0);
     }
 
-    let email_str = match email.as_str().parse() {
+    let email_str = match use_account.email.as_str().parse() {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
@@ -308,7 +326,7 @@ pub fn send(
         }
     };
 
-    let entry = match Entry::new(APP_NAME, &id.to_string()) {
+    let entry = match Entry::new(APP_NAME, &use_account.id.to_string()) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("Unexpected Error: {}", e);
@@ -316,13 +334,286 @@ pub fn send(
             process::exit(1);
         }
     };
-    let password = match entry.get_password() {
+    let mut password = match entry.get_password() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to get password: {}", e);
             keyring_core::unset_default_store();
             process::exit(1);
         }
+    };
+
+    password = if let Some(token_expiration) = use_account.token_expiration {
+        let stored_date = match DateTime::parse_from_rfc3339(&token_expiration) {
+            Ok(d) => d.with_timezone(&Utc),
+            Err(e) => {
+                eprintln!("Unexpected Error: {}", e);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            }
+        };
+
+        let today = Utc::now();
+
+        if today >= stored_date {
+            // relogin
+            let client_id_entry = match Entry::new(APP_NAME, &format!("{}.id", &use_account.id)) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+            let client_id = match client_id_entry.get_password() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Failed to get Client Id: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+
+            let domain = use_account.email.split("@").collect::<Vec<&str>>()[1];
+            let config_entry = match reqwest::blocking::get(format!(
+                "https://raw.githubusercontent.com/Paulprojects8711/ion-mail-config/refs/heads/main/providers/{}.toml",
+                domain
+            )) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Failed to get provider list: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+            let mail_config: MailConfig = if config_entry.status().is_success() {
+                let config_text = match config_entry.text() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    }
+                };
+                match toml::from_str(&config_text) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!("Failed to get provider list");
+                keyring_core::unset_default_store();
+                process::exit(1);
+            };
+            let refresh_token_entry =
+                match Entry::new(APP_NAME, &format!("{}.refresh_token", use_account.id)) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    }
+                };
+            let refresh_token: Option<String> = refresh_token_entry.get_password().ok();
+            let response = match reqwest::blocking::get(&mail_config.oidc) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Failed to get OIDC Discovery Endpoints: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+            let response_text = match response.text() {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+            let endpoints: Endpoints = match serde_json::from_str(&response_text) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Unexpected Error: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+
+            let client = BasicClient::new(ClientId::new(client_id))
+                .set_auth_uri(AuthUrl::new(endpoints.authorization_endpoint).unwrap())
+                .set_token_uri(TokenUrl::new(endpoints.token_endpoint).unwrap())
+                .set_device_authorization_url(
+                    DeviceAuthorizationUrl::new(endpoints.device_authorization_endpoint).unwrap(),
+                );
+            let http_client = oauth2::reqwest::blocking::ClientBuilder::new()
+                .redirect(oauth2::reqwest::redirect::Policy::none())
+                .build()
+                .unwrap();
+            if let Some(refresh_token) = refresh_token {
+                let final_refresh_token = RefreshToken::new(refresh_token);
+                let mut details = client.exchange_refresh_token(&final_refresh_token);
+                if let Some(ref scopes) = use_account.scopes {
+                    for scope in scopes {
+                        details = details.add_scope(Scope::new(scope.to_string()));
+                    }
+                }
+                let token_result = match details.request(&http_client) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    }
+                };
+                if let Some(expires_in) = token_result.expires_in() {
+                    let expire_date = (today + expires_in).to_rfc3339();
+                    use_account.token_expiration = Some(expire_date);
+                    let toml_output = match toml::to_string(&use_account) {
+                        Ok(toml) => toml,
+                        Err(e) => {
+                            eprintln!("Unexpected Error: {}", e);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        }
+                    };
+                    let toml_p = dirs::home_dir().ok_or_else(|| {
+                        eprintln!("Could not find home directory");
+                        process::exit(1);
+                    });
+
+                    let mut toml_path_unwrap = toml_p.unwrap();
+
+                    toml_path_unwrap.push(".ion-mail");
+
+                    toml_path_unwrap.push("config.toml");
+
+                    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
+                    match fs::write(toml_path, toml_output) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Error when saving new config: {}", e);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        }
+                    }
+                }
+                if let Some(refresh_token) = token_result.refresh_token() {
+                    match refresh_token_entry.set_password(refresh_token.secret()) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Failed to set password: {}", e);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        }
+                    };
+                }
+                // save password
+                match entry.set_password(token_result.access_token().secret()) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Failed to set password: {}", e);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    }
+                };
+                token_result.access_token().clone().into_secret()
+            } else {
+                let mut details = client.exchange_device_code();
+
+                if let Some(ref scopes) = use_account.scopes {
+                    for scope in scopes {
+                        details = details.add_scope(Scope::new(scope.to_string()));
+                    }
+                }
+                let final_details: StandardDeviceAuthorizationResponse =
+                    match details.request(&http_client) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            eprintln!("Unexpected Error: {}", e);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        }
+                    };
+
+                println!(
+                    "To authenticate, open this URL in your browser:\n{}\nand enter the code: {}",
+                    final_details.verification_uri(),
+                    final_details.user_code().secret()
+                );
+
+                let token_result = match client
+                    .exchange_device_access_token(&final_details)
+                    .request(&http_client, std::thread::sleep, None)
+                {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("Unexpected Error: {}", e);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    }
+                };
+                if let Some(expires_in) = token_result.expires_in() {
+                    let expire_date = (today + expires_in).to_rfc3339();
+                    use_account.token_expiration = Some(expire_date);
+                    let toml_output = match toml::to_string(&use_account) {
+                        Ok(toml) => toml,
+                        Err(e) => {
+                            eprintln!("Unexpected Error: {}", e);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        }
+                    };
+                    let toml_p = dirs::home_dir().ok_or_else(|| {
+                        eprintln!("Could not find home directory");
+                        process::exit(1);
+                    });
+
+                    let mut toml_path_unwrap = toml_p.unwrap();
+
+                    toml_path_unwrap.push(".ion-mail");
+
+                    toml_path_unwrap.push("config.toml");
+
+                    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
+                    match fs::write(toml_path, toml_output) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Error when saving new config: {}", e);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        }
+                    }
+                }
+                if let Some(refresh_token) = token_result.refresh_token() {
+                    match refresh_token_entry.set_password(refresh_token.secret()) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("Failed to set password: {}", e);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        }
+                    };
+                }
+                // save password
+                match entry.set_password(token_result.access_token().secret()) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Failed to set password: {}", e);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    }
+                };
+                token_result.access_token().clone().into_secret()
+            }
+        } else {
+            password
+        }
+    } else {
+        password
     };
 
     let mut send = false;
@@ -338,14 +629,37 @@ pub fn send(
     }
 
     if yes || send {
-        let creds = Credentials::new(email, password);
+        let creds = Credentials::new(use_account.email, password);
 
-        let mailer = if let Ok(mailer) = SmtpTransport::relay(&smtp.clone()) {
-            mailer.credentials(creds).port(smtp_port).build()
-        } else if let Ok(mailer) = SmtpTransport::starttls_relay(&smtp.clone()) {
-            mailer.credentials(creds).port(smtp_port).build()
+        let mailer = if use_account.smtp.security == "SSL" || use_account.smtp.security == "TLS" {
+            let mailer = match SmtpTransport::relay(&use_account.smtp.host.clone()) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Failed to connect via SSL/TLS: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+            mailer
+                .credentials(creds)
+                .port(use_account.smtp.port)
+                .build()
+        } else if use_account.smtp.security == "STARTTLS" {
+            let mailer = match SmtpTransport::starttls_relay(&use_account.smtp.host.clone()) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Failed to connect via SSL/TLS: {}", e);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                }
+            };
+            mailer
+                .credentials(creds)
+                .port(use_account.smtp.port)
+                .build()
         } else {
-            eprintln!("Failed to connect via TLS and STARTTLS");
+            eprintln!("Security type not recognized");
+            keyring_core::unset_default_store();
             process::exit(1);
         };
 

@@ -42,6 +42,21 @@ pub struct Imap {
     pub security: String,
 }
 
+#[derive(Deserialize)]
+pub struct MailConfig {
+    smtp: Smtp,
+    imap: Imap,
+    oidc: String,
+    scopes: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct Endpoints {
+    device_authorization_endpoint: String,
+    authorization_endpoint: String,
+    token_endpoint: String,
+}
+
 fn main() {
     let toml_p = dirs::home_dir().ok_or_else(|| {
         eprintln!("Could not find home directory");

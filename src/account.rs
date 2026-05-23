@@ -1,4 +1,4 @@
-use crate::{APP_NAME, Account, Config, Imap, Smtp};
+use crate::{APP_NAME, Account, Config, Endpoints, Imap, MailConfig, Smtp};
 
 use chrono::{DateTime, Utc};
 use dialoguer::{Confirm, Input, Password, Select, theme::ColorfulTheme};
@@ -9,26 +9,10 @@ use oauth2::{
     AuthUrl, ClientId, DeviceAuthorizationUrl, RefreshToken, Scope,
     StandardDeviceAuthorizationResponse, TokenResponse, TokenUrl,
 };
-use serde::Deserialize;
 use std::fs;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process;
 use std::time::Duration;
-
-#[derive(Deserialize)]
-struct MailConfig {
-    smtp: Smtp,
-    imap: Imap,
-    oidc: String,
-    scopes: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct Endpoints {
-    device_authorization_endpoint: String,
-    authorization_endpoint: String,
-    token_endpoint: String,
-}
 
 pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::TcpStream>> {
     let mut found = false;

@@ -851,7 +851,42 @@ pub fn add(toml_path: &str, old_config: Config) {
                     process::exit(1);
                 }
             };
-            // TODO: add button to add to the db
+            if Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt("Entry does not yet exist in database. Do you want to add it?")
+                .default(true)
+                .show_default(true)
+                .wait_for_newline(true)
+                .interact()
+                .unwrap()
+            {
+                let formatted_smtp_security = if smtp_security == "SSL" {
+                    "SSL%2FTLS"
+                } else {
+                    "STARTTLS"
+                };
+                let formatted_imap_security = if imap_security == "SSL" {
+                    "SSL%2FTLS"
+                } else {
+                    "STARTTLS"
+                };
+                let link = format!(
+                    "https://github.com/Paulprojects8711/ion-mail-config/issues/new?template=provider.yml&title=Add+provider:+{}&provider={}&smtp-host={}&smtp-port={}&smtp-security={}&imap-host={}&imap-port={}&imap-security={}&oidc={}&scopes={}",
+                    domain,
+                    domain,
+                    smtp_host,
+                    smtp_port,
+                    formatted_smtp_security,
+                    imap_host,
+                    imap_port,
+                    formatted_imap_security,
+                    oidc.clone().expect("OIDC should exist"),
+                    scopes.clone().expect("Scopes should exist").join("%0A"),
+                );
+                println!(
+                    "To add the entry, open this link in a browser of choice: {}",
+                    link
+                );
+            }
             if let Some(expires_in) = token_result.expires_in() {
                 let expire_date = (Utc::now() + expires_in).to_rfc3339();
                 token_expiration = Some(expire_date);

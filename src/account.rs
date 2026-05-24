@@ -14,6 +14,21 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::process;
 use std::time::Duration;
 
+struct OAuth2 {
+    user: String,
+    access_token: String,
+}
+
+impl imap::Authenticator for OAuth2 {
+    type Response = String;
+    fn process(&self, _: &[u8]) -> Self::Response {
+        format!(
+            "user={}\x01auth=Bearer {}\x01\x01",
+            self.user, self.access_token
+        )
+    }
+}
+
 pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::TcpStream>> {
     let mut found = false;
 
@@ -40,10 +55,10 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
         token_expiration: None,
     };
 
-    for account in config.accounts {
+    for account in &config.accounts {
         if account.active {
             found = true;
-            use_account = account;
+            use_account = account.clone();
         }
     }
 
@@ -286,7 +301,13 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                 if let Some(expires_in) = token_result.expires_in() {
                     let expire_date = (today + expires_in).to_rfc3339();
                     use_account.token_expiration = Some(expire_date);
-                    let toml_output = match toml::to_string(&use_account) {
+                    let mut _config = Config {
+                        accounts: Vec::new(),
+                    };
+                    for acc in &config.accounts {
+                        _config.accounts.push(acc.clone());
+                    }
+                    let toml_output = match toml::to_string(&_config) {
                         Ok(toml) => toml,
                         Err(e) => {
                             eprintln!("Unexpected Error: {}", e);
@@ -377,12 +398,28 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
         process::exit(1);
     };
 
-    match client.login(use_account.email, password) {
-        Ok(s) => s,
-        Err((e, _orig_client)) => {
-            eprintln!("Login failed: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
+    if use_account.oidc.is_some() {
+        let auth = OAuth2 {
+            user: use_account.email,
+            access_token: password,
+        };
+
+        match client.authenticate("XOAUTH2", &auth) {
+            Ok(s) => s,
+            Err((e, _orig_client)) => {
+                eprintln!("Login failed: {}", e);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            }
+        }
+    } else {
+        match client.login(use_account.email, password) {
+            Ok(s) => s,
+            Err((e, _orig_client)) => {
+                eprintln!("Login failed: {}", e);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            }
         }
     }
 }

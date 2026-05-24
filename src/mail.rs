@@ -4,7 +4,7 @@ use chrono::{DateTime, Local, Utc};
 use dialoguer::{Confirm, Editor, Input, MultiSelect, Select, theme::ColorfulTheme};
 use keyring_core::Entry;
 use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart, header::ContentType};
-use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 use lettre::{Message, SmtpTransport, Transport};
 use mailparse::{DispositionType, MailHeaderMap, ParsedMail};
 use minus::Pager;
@@ -640,10 +640,18 @@ pub fn send(
                     process::exit(1);
                 }
             };
-            mailer
-                .credentials(creds)
-                .port(use_account.smtp.port)
-                .build()
+            if use_account.oidc.is_some() {
+                mailer
+                    .credentials(creds)
+                    .port(use_account.smtp.port)
+                    .authentication(vec![Mechanism::Xoauth2])
+                    .build()
+            } else {
+                mailer
+                    .credentials(creds)
+                    .port(use_account.smtp.port)
+                    .build()
+            }
         } else if use_account.smtp.security == "STARTTLS" {
             let mailer = match SmtpTransport::starttls_relay(&use_account.smtp.host.clone()) {
                 Ok(m) => m,
@@ -653,10 +661,18 @@ pub fn send(
                     process::exit(1);
                 }
             };
-            mailer
-                .credentials(creds)
-                .port(use_account.smtp.port)
-                .build()
+            if use_account.oidc.is_some() {
+                mailer
+                    .credentials(creds)
+                    .port(use_account.smtp.port)
+                    .authentication(vec![Mechanism::Xoauth2])
+                    .build()
+            } else {
+                mailer
+                    .credentials(creds)
+                    .port(use_account.smtp.port)
+                    .build()
+            }
         } else {
             eprintln!("Security type not recognized");
             keyring_core::unset_default_store();

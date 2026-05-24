@@ -51,10 +51,10 @@ pub fn send(
         token_expiration: None,
     };
 
-    for account in config.accounts {
+    for account in &config.accounts {
         if account.active {
             found = true;
-            use_account = account;
+            use_account = account.clone();
         }
     }
 
@@ -472,7 +472,17 @@ pub fn send(
                 if let Some(expires_in) = token_result.expires_in() {
                     let expire_date = (today + expires_in).to_rfc3339();
                     use_account.token_expiration = Some(expire_date);
-                    let toml_output = match toml::to_string(&use_account) {
+                    let mut _config = Config {
+                        accounts: Vec::new(),
+                    };
+                    for acc in &config.accounts {
+                        if !acc.active {
+                            _config.accounts.push(acc.clone());
+                        } else {
+                            _config.accounts.push(use_account.clone());
+                        }
+                    }
+                    let toml_output = match toml::to_string(&_config) {
                         Ok(toml) => toml,
                         Err(e) => {
                             eprintln!("Unexpected Error: {}", e);
@@ -559,7 +569,17 @@ pub fn send(
                 if let Some(expires_in) = token_result.expires_in() {
                     let expire_date = (today + expires_in).to_rfc3339();
                     use_account.token_expiration = Some(expire_date);
-                    let toml_output = match toml::to_string(&use_account) {
+                    let mut _config = Config {
+                        accounts: Vec::new(),
+                    };
+                    for acc in &config.accounts {
+                        if !acc.active {
+                            _config.accounts.push(acc.clone());
+                        } else {
+                            _config.accounts.push(use_account.clone());
+                        }
+                    }
+                    let toml_output = match toml::to_string(&_config) {
                         Ok(toml) => toml,
                         Err(e) => {
                             eprintln!("Unexpected Error: {}", e);

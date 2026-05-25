@@ -5,4 +5,6 @@ Please report any bugs you find, some cannot be fixed because they are server re
 
 Check out the wiki!
 
+Please note that OAuth2 for Gmail is not supported. Neither are personal Microsoft accounts.
+
 Feel free to add features by creating a pull request

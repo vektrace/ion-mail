@@ -64,14 +64,12 @@ pub fn send(
         process::exit(0);
     }
 
-    let email_str = match use_account.email.as_str().parse() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let email_str = use_account.email.as_str().parse().unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
     // also have to do like all checks and if only some are done still open interactively
     let mail_components = if let Some(ref to) = to
         && let Some(ref subject) = subject
@@ -154,17 +152,15 @@ pub fn send(
         let body = if let Some(ref body) = body {
             body.to_string()
         } else {
-            let edited = match Editor::new().edit("Enter the body of the email") {
-                Ok(t) => t,
-                Err(e) => {
+            let edited = Editor::new().edit("Enter the body of the email").unwrap_or_else(|err| {
                     eprintln!(
                         "Failed to open Editor: ({}), Maybe the EDITOR environment variable is not set?",
-                        e
+                        err
                     );
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
+
             if let Some(body) = edited {
                 body
             } else {
@@ -259,14 +255,12 @@ pub fn send(
     let mut message = Message::builder().from(Mailbox::new(None, email_str));
 
     for i in to {
-        let current_to = match i.as_str().parse() {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let current_to = i.as_str().parse().unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
+
         message = message.to(Mailbox::new(None, current_to));
     }
 
@@ -287,14 +281,12 @@ pub fn send(
                 let guess = mime_guess::from_path(attachment.as_path()).first_or_octet_stream();
                 let content_type =
                     ContentType::parse(&format!("{}/{}", guess.type_(), guess.subtype())).unwrap();
-                let filebody = match fs::read(attachment.as_path()) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let filebody = fs::read(attachment.as_path()).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
                 if let Some(name) = name {
                     let name_str = name.to_str();
                     if let Some(name_str) = name_str {
@@ -317,131 +309,104 @@ pub fn send(
         multipart = multipart.singlepart(attachment);
     }
 
-    let final_message = match message.multipart(multipart) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let final_message = message.multipart(multipart).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
-    let entry = match Entry::new(APP_NAME, &use_account.id.to_string()) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
-    let mut password = match entry.get_password() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to get password: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let entry = Entry::new(APP_NAME, &use_account.id.to_string()).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
+    let mut password = entry.get_password().unwrap_or_else(|err| {
+        eprintln!("Failed to get password: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     password = if let Some(token_expiration) = use_account.token_expiration {
-        let stored_date = match DateTime::parse_from_rfc3339(&token_expiration) {
-            Ok(d) => d.with_timezone(&Utc),
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+        let stored_date = DateTime::parse_from_rfc3339(&token_expiration)
+            .unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
+            })
+            .with_timezone(&Utc);
 
         let today = Utc::now();
 
         if today >= stored_date {
             // relogin
-            let client_id_entry = match Entry::new(APP_NAME, &format!("{}.id", &use_account.id)) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
+            let client_id_entry = Entry::new(APP_NAME, &format!("{}.id", &use_account.id))
+                .unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
-            let client_id = match client_id_entry.get_password() {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Failed to get Client Id: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
+                });
+
+            let client_id = client_id_entry.get_password().unwrap_or_else(|err| {
+                eprintln!("Failed to get Client Id: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
             let domain = use_account.email.split("@").collect::<Vec<&str>>()[1];
-            let config_entry = match reqwest::blocking::get(format!(
+            let config_entry = reqwest::blocking::get(format!(
                 "https://raw.githubusercontent.com/Paulprojects8711/ion-mail-config/refs/heads/main/providers/{}.toml",
                 domain
-            )) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Failed to get provider list: {}", e);
+            )).unwrap_or_else(|err| {
+                    eprintln!("Failed to get provider list: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
+
             let mail_config: MailConfig = if config_entry.status().is_success() {
-                let config_text = match config_entry.text() {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
-                match toml::from_str(&config_text) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                }
+                let config_text = config_entry.text().unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
+                toml::from_str(&config_text).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                })
             } else {
                 eprintln!("Failed to get provider list");
                 keyring_core::unset_default_store();
                 process::exit(1);
             };
             let refresh_token_entry =
-                match Entry::new(APP_NAME, &format!("{}.refresh_token", use_account.id)) {
-                    Ok(e) => e,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
+                Entry::new(APP_NAME, &format!("{}.refresh_token", use_account.id)).unwrap_or_else(
+                    |err| {
+                        eprintln!("Unexpected Error: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    },
+                );
+
             let refresh_token: Option<String> = refresh_token_entry.get_password().ok();
-            let response = match reqwest::blocking::get(&mail_config.oidc) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Failed to get OIDC Discovery Endpoints: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
-            let response_text = match response.text() {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
-            let endpoints: Endpoints = match serde_json::from_str(&response_text) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
+            let response = reqwest::blocking::get(&mail_config.oidc).unwrap_or_else(|err| {
+                eprintln!("Failed to get OIDC Discovery Endpoints: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
+            let response_text = response.text().unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
+            let endpoints: Endpoints = serde_json::from_str(&response_text).unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
             let client = BasicClient::new(ClientId::new(client_id))
                 .set_auth_uri(AuthUrl::new(endpoints.authorization_endpoint).unwrap())
@@ -461,14 +426,12 @@ pub fn send(
                         details = details.add_scope(Scope::new(scope.to_string()));
                     }
                 }
-                let token_result = match details.request(&http_client) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let token_result = details.request(&http_client).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
                 if let Some(expires_in) = token_result.expires_in() {
                     let expire_date = (today + expires_in).to_rfc3339();
                     use_account.token_expiration = Some(expire_date);
@@ -482,54 +445,45 @@ pub fn send(
                             _config.accounts.push(use_account.clone());
                         }
                     }
-                    let toml_output = match toml::to_string(&_config) {
-                        Ok(toml) => toml,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                    let toml_p = dirs::home_dir().ok_or_else(|| {
-                        eprintln!("Could not find home directory");
+                    let toml_output = toml::to_string(&_config).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     });
 
-                    let mut toml_path_unwrap = toml_p.unwrap();
-
-                    toml_path_unwrap.push(".ion-mail");
-
-                    toml_path_unwrap.push("config.toml");
-
-                    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
-                    match fs::write(toml_path, toml_output) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Error when saving new config: {}", e);
-                            keyring_core::unset_default_store();
+                    let toml_p = dirs::config_local_dir()
+                        .unwrap_or_else(|| {
+                            eprintln!("Could not find home directory");
                             process::exit(1);
-                        }
-                    }
-                }
-                if let Some(refresh_token) = token_result.refresh_token() {
-                    match refresh_token_entry.set_password(refresh_token.secret()) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Failed to set password: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                }
-                // save password
-                match entry.set_password(token_result.access_token().secret()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Failed to set password: {}", e);
+                        })
+                        .join("ion-mail")
+                        .join("config.toml");
+
+                    let toml_path: &str = toml_p.to_str().unwrap();
+                    fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+                        eprintln!("Error when saving new config: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    });
+                }
+                if let Some(refresh_token) = token_result.refresh_token() {
+                    refresh_token_entry
+                        .set_password(refresh_token.secret())
+                        .unwrap_or_else(|err| {
+                            eprintln!("Failed to set password: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+                }
+                // save password
+                entry
+                    .set_password(token_result.access_token().secret())
+                    .unwrap_or_else(|err| {
+                        eprintln!("Failed to set password: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
                 token_result.access_token().clone().into_secret()
             } else {
                 let mut details = client.exchange_device_code();
@@ -540,14 +494,11 @@ pub fn send(
                     }
                 }
                 let final_details: StandardDeviceAuthorizationResponse =
-                    match details.request(&http_client) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
+                    details.request(&http_client).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
 
                 println!(
                     "To authenticate, open this URL in your browser:\n{}\nand enter the code: {}",
@@ -555,17 +506,15 @@ pub fn send(
                     final_details.user_code().secret()
                 );
 
-                let token_result = match client
+                let token_result = client
                     .exchange_device_access_token(&final_details)
                     .request(&http_client, std::thread::sleep, None)
-                {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
+                    .unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    });
+
                 if let Some(expires_in) = token_result.expires_in() {
                     let expire_date = (today + expires_in).to_rfc3339();
                     use_account.token_expiration = Some(expire_date);
@@ -579,54 +528,45 @@ pub fn send(
                             _config.accounts.push(use_account.clone());
                         }
                     }
-                    let toml_output = match toml::to_string(&_config) {
-                        Ok(toml) => toml,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                    let toml_p = dirs::home_dir().ok_or_else(|| {
-                        eprintln!("Could not find home directory");
+                    let toml_output = toml::to_string(&_config).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     });
 
-                    let mut toml_path_unwrap = toml_p.unwrap();
-
-                    toml_path_unwrap.push(".ion-mail");
-
-                    toml_path_unwrap.push("config.toml");
-
-                    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
-                    match fs::write(toml_path, toml_output) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Error when saving new config: {}", e);
-                            keyring_core::unset_default_store();
+                    let toml_p = dirs::config_local_dir()
+                        .unwrap_or_else(|| {
+                            eprintln!("Could not find home directory");
                             process::exit(1);
-                        }
-                    }
-                }
-                if let Some(refresh_token) = token_result.refresh_token() {
-                    match refresh_token_entry.set_password(refresh_token.secret()) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Failed to set password: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                }
-                // save password
-                match entry.set_password(token_result.access_token().secret()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Failed to set password: {}", e);
+                        })
+                        .join("ion-mail")
+                        .join("config.toml");
+
+                    let toml_path: &str = toml_p.to_str().unwrap();
+                    fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+                        eprintln!("Error when saving new config: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    });
+                }
+                if let Some(refresh_token) = token_result.refresh_token() {
+                    refresh_token_entry
+                        .set_password(refresh_token.secret())
+                        .unwrap_or_else(|err| {
+                            eprintln!("Failed to set password: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+                }
+                // save password
+                entry
+                    .set_password(token_result.access_token().secret())
+                    .unwrap_or_else(|err| {
+                        eprintln!("Failed to set password: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
                 token_result.access_token().clone().into_secret()
             }
         } else {
@@ -652,14 +592,13 @@ pub fn send(
         let creds = Credentials::new(use_account.email, password);
 
         let mailer = if use_account.smtp.security == "SSL" || use_account.smtp.security == "TLS" {
-            let mailer = match SmtpTransport::relay(&use_account.smtp.host.clone()) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("Failed to connect via SSL/TLS: {}", e);
+            let mailer =
+                SmtpTransport::relay(&use_account.smtp.host.clone()).unwrap_or_else(|err| {
+                    eprintln!("Failed to connect via SSL/TLS: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
+
             if use_account.oidc.is_some() {
                 mailer
                     .credentials(creds)
@@ -673,14 +612,13 @@ pub fn send(
                     .build()
             }
         } else if use_account.smtp.security == "STARTTLS" {
-            let mailer = match SmtpTransport::starttls_relay(&use_account.smtp.host.clone()) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("Failed to connect via SSL/TLS: {}", e);
+            let mailer = SmtpTransport::starttls_relay(&use_account.smtp.host.clone())
+                .unwrap_or_else(|err| {
+                    eprintln!("Failed to connect via SSL/TLS: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
+
             if use_account.oidc.is_some() {
                 mailer
                     .credentials(creds)
@@ -743,23 +681,17 @@ fn find_html_text(part: &ParsedMail) -> Option<String> {
 pub fn read(config: Config, folder: String, id: u32) {
     let mut imap_session = auth(config);
 
-    match imap_session.select(folder) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Failed to select folder: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    imap_session.select(folder).unwrap_or_else(|err| {
+        eprintln!("Failed to select folder: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
-    let mails = match imap_session.fetch("1:*", "(FLAGS)") {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let mails = imap_session.fetch("1:*", "(FLAGS)").unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     let mut found = false;
 
@@ -776,33 +708,25 @@ pub fn read(config: Config, folder: String, id: u32) {
 
     let max_value = mails.len();
 
-    let found_mail = match imap_session.fetch(format!("{}", max_value - (id as usize)), "(BODY[])")
-    {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
+    let found_mail = imap_session
+        .fetch(format!("{}", max_value - (id as usize)), "(BODY[])")
+        .unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
             keyring_core::unset_default_store();
             process::exit(1);
-        }
-    };
+        });
 
-    match imap_session.logout() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Logout failed, ignoring... ({})", e);
-        }
-    }
+    imap_session.logout().unwrap_or_else(|err| {
+        eprintln!("Logout failed, ignoring... ({})", err);
+    });
 
     let mail_bytes = found_mail[0].body();
 
-    let parsed = match mailparse::parse_mail(mail_bytes.unwrap()) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to parse mail: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let parsed = mailparse::parse_mail(mail_bytes.unwrap()).unwrap_or_else(|err| {
+        eprintln!("Failed to parse mail: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     let subject = parsed
         .headers
@@ -853,14 +777,13 @@ pub fn read(config: Config, folder: String, id: u32) {
         (None, None) => " (No content) ".to_string(),
     };
 
-    let parsed_date = match DateTime::parse_from_rfc2822(&date) {
-        Ok(d) => d.with_timezone(&Local),
-        Err(e) => {
-            eprintln!("Failed to parse date: {}", e);
+    let parsed_date = DateTime::parse_from_rfc2822(&date)
+        .unwrap_or_else(|err| {
+            eprintln!("Failed to parse date: {}", err);
             keyring_core::unset_default_store();
             process::exit(1);
-        }
-    };
+        })
+        .with_timezone(&Local);
 
     let mut attachments: Vec<String> = Vec::new();
 
@@ -902,31 +825,25 @@ pub fn read(config: Config, folder: String, id: u32) {
     content.push_str(&format!("\n\n{}", body));
 
     let pager = Pager::new();
-    match pager.set_prompt("Reading email (Press 'q' to exit)") {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
+    pager
+        .set_prompt("Reading email (Press 'q' to exit)")
+        .unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
             keyring_core::unset_default_store();
             process::exit(1);
-        }
-    }
-    match pager.set_text(content) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+        });
 
-    match minus::dynamic_paging(pager) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    pager.set_text(content).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
+    minus::dynamic_paging(pager).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 }
 
 pub fn download(
@@ -938,23 +855,17 @@ pub fn download(
 ) {
     let mut imap_session = auth(config);
 
-    match imap_session.select(folder) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Failed to select folder: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    imap_session.select(folder).unwrap_or_else(|err| {
+        eprintln!("Failed to select folder: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
-    let mails = match imap_session.fetch("1:*", "(FLAGS)") {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let mails = imap_session.fetch("1:*", "(FLAGS)").unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     let mut found = false;
 
@@ -971,26 +882,21 @@ pub fn download(
 
     let max_value = mails.len();
 
-    let found_mail =
-        match imap_session.fetch(format!("{}", max_value - (id as usize)), "(BODY.PEEK[])") {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+    let found_mail = imap_session
+        .fetch(format!("{}", max_value - (id as usize)), "(BODY.PEEK[])")
+        .unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
     let mail_bytes = found_mail[0].body();
 
-    let parsed = match mailparse::parse_mail(mail_bytes.unwrap()) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to parse mail: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let parsed = mailparse::parse_mail(mail_bytes.unwrap()).unwrap_or_else(|err| {
+        eprintln!("Failed to parse mail: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     let mut current_attachment_id = 0;
 
@@ -1019,14 +925,11 @@ pub fn download(
                     let binary_data = part.get_body_raw().unwrap();
 
                     let mut file = File::create(&save_path).unwrap();
-                    match file.write_all(&binary_data) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Failed to save file: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    }
+                    file.write_all(&binary_data).unwrap_or_else(|err| {
+                        eprintln!("Failed to save file: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
                 }
             } else {
                 let mut save_path = PathBuf::from(save_folder.clone());
@@ -1035,14 +938,11 @@ pub fn download(
                 let binary_data = part.get_body_raw().unwrap();
 
                 let mut file = File::create(&save_path).unwrap();
-                match file.write_all(&binary_data) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Failed to save file: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                }
+                file.write_all(&binary_data).unwrap_or_else(|err| {
+                    eprintln!("Failed to save file: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
             }
             current_attachment_id += 1;
         }
@@ -1068,42 +968,32 @@ pub fn search(config: Config, query: String, folder: String) {
     let mut results: Vec<(String, String)> = Vec::new();
 
     if folder != "ALL" {
-        match imap_session.select(&folder) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Failed to select folder: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        }
+        imap_session.select(&folder).unwrap_or_else(|err| {
+            eprintln!("Failed to select folder: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
-        let fetch = match imap_session.fetch("1:*", "(BODY.PEEK[])") {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+        let fetch = imap_session
+            .fetch("1:*", "(BODY.PEEK[])")
+            .unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
+            });
 
         for (current_id, mail) in fetch.iter().rev().enumerate() {
-            let parsed = match mailparse::parse_mail(mail.body().unwrap()) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Failed to parse mail: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
+            let parsed = mailparse::parse_mail(mail.body().unwrap()).unwrap_or_else(|err| {
+                eprintln!("Failed to parse mail: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
             let subject = parsed
                 .headers
                 .get_first_value("Subject")
-                .unwrap_or_else(|| "".to_string());
-            let from = parsed
-                .headers
-                .get_first_value("From")
-                .unwrap_or_else(|| "".to_string());
+                .unwrap_or_default();
+            let from = parsed.headers.get_first_value("From").unwrap_or_default();
             let body = find_plain_text(&parsed).unwrap_or_default();
 
             if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
@@ -1114,52 +1004,39 @@ pub fn search(config: Config, query: String, folder: String) {
             }
         }
     } else {
-        let mailboxes = match imap_session.list(None, Some("*")) {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let mailboxes = imap_session.list(None, Some("*")).unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
         for mailbox in mailboxes.iter() {
-            match imap_session.select(mailbox.name()) {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Failed to select folder: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            }
+            imap_session.select(mailbox.name()).unwrap_or_else(|err| {
+                eprintln!("Failed to select folder: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
-            let fetch = match imap_session.fetch("1:*", "(BODY.PEEK[])") {
-                Ok(f) => f,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
+            let fetch = imap_session
+                .fetch("1:*", "(BODY.PEEK[])")
+                .unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
 
             for (current_id, mail) in fetch.iter().rev().enumerate() {
-                let parsed = match mailparse::parse_mail(mail.body().unwrap()) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("Failed to parse mail: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let parsed = mailparse::parse_mail(mail.body().unwrap()).unwrap_or_else(|err| {
+                    eprintln!("Failed to parse mail: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
 
                 let subject = parsed
                     .headers
                     .get_first_value("Subject")
-                    .unwrap_or_else(|| "".to_string());
-                let from = parsed
-                    .headers
-                    .get_first_value("From")
-                    .unwrap_or_else(|| "".to_string());
+                    .unwrap_or_default();
+                let from = parsed.headers.get_first_value("From").unwrap_or_default();
                 let body = find_plain_text(&parsed).unwrap_or_default();
 
                 if subject.contains(&query) || from.contains(&query) || body.contains(&query) {
@@ -1192,25 +1069,19 @@ pub fn search(config: Config, query: String, folder: String) {
         .unwrap();
 
     if let Some(selection) = selection {
-        let s = match selection.try_into() {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let s = selection.try_into().unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
         read(config, results[s as usize].1.clone(), s);
     }
 
-    match imap_session.logout() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Logout failed: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    imap_session.logout().unwrap_or_else(|err| {
+        eprintln!("Logout failed: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 }
 
 // mv because move is reserved by rust
@@ -1225,21 +1096,17 @@ pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
         .interact()
         .unwrap()
     {
-        match imap_session.select(&from) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Failed to select folder: {}", e);
-            }
-        }
+        imap_session.select(&from).unwrap_or_else(|err| {
+            eprintln!("Failed to select folder: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
-        let mails = match imap_session.fetch("1:*", "(FLAGS)") {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let mails = imap_session.fetch("1:*", "(FLAGS)").unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
         let mut found_ids = Vec::new();
 
@@ -1257,18 +1124,18 @@ pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
                     .collect::<Vec<String>>()
                     .join(", ")
             );
+            keyring_core::unset_default_store();
             process::exit(1);
         }
 
         let max_value = mails.len();
 
         for index in &id {
-            match imap_session.mv(format!("{}", max_value - (*index as usize)), &to) {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                }
-            };
+            imap_session
+                .mv(format!("{}", max_value - (*index as usize)), &to)
+                .unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                });
         }
 
         println!(
@@ -1286,24 +1153,18 @@ pub fn mv(config: Config, from: String, to: String, id: Vec<u32>) {
 pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
     let mut imap_session = auth(config);
 
-    match imap_session.select(&folder) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Failed to select folder: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    imap_session.select(&folder).unwrap_or_else(|err| {
+        eprintln!("Failed to select folder: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     if let Some(id) = id {
-        let mails = match imap_session.fetch("1:*", "(UID)") {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let mails = imap_session.fetch("1:*", "(UID)").unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
         let mut found_ids = Vec::new();
 
@@ -1341,45 +1202,40 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
                 .collect::<Vec<String>>()
                 .join(",");
 
-            match imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)") {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                }
-            }
-
-            match imap_session.uid_expunge(&uid_set) {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
+            imap_session
+                .uid_store(&uid_set, "FLAGS (\\Deleted)")
+                .unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            }
-        }
-    } else {
-        let mails = match imap_session.fetch("1:*", "(UID BODY.PEEK[HEADER])") {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+                });
+
+            imap_session.uid_expunge(&uid_set).unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
+            });
+        }
+    } else {
+        let mails = imap_session
+            .fetch("1:*", "(UID BODY.PEEK[HEADER])")
+            .unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
         let mut current_id = 0;
         let mut messages: Vec<String> = Vec::new();
 
         for mail in mails.iter().rev() {
             if let Some(header_bytes) = mail.header() {
-                let (parsed_headers, _) = match mailparse::parse_headers(header_bytes) {
-                    Ok(parsed) => parsed,
-                    Err(e) => {
-                        eprintln!("Failed to parse headers: {}", e);
+                let (parsed_headers, _) =
+                    mailparse::parse_headers(header_bytes).unwrap_or_else(|err| {
+                        eprintln!("Failed to parse headers: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    });
 
                 let mut subject = String::new();
                 let mut from = String::new();
@@ -1397,14 +1253,13 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
                     }
                 }
 
-                let parsed_date = match DateTime::parse_from_rfc2822(&date) {
-                    Ok(d) => d.with_timezone(&Local),
-                    Err(e) => {
-                        eprintln!("Failed to parse date: {}", e);
+                let parsed_date = DateTime::parse_from_rfc2822(&date)
+                    .unwrap_or_else(|err| {
+                        eprintln!("Failed to parse date: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    })
+                    .with_timezone(&Local);
 
                 messages.push(format!(
                     "[{:03}] {} | {} | {}",
@@ -1464,23 +1319,19 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
                         .collect::<Vec<String>>()
                         .join(",");
 
-                    match imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)") {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
+                    imap_session
+                        .uid_store(&uid_set, "FLAGS (\\Deleted)")
+                        .unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    }
+                        });
 
-                    match imap_session.uid_expunge(&uid_set) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    }
+                    imap_session.uid_expunge(&uid_set).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
                 }
             }
             println!("Mail deleted successfully");
@@ -1489,10 +1340,7 @@ pub fn delete(config: Config, id: Option<Vec<u32>>, folder: String) {
         }
     }
 
-    match imap_session.logout() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Logout failed, ignoring... ({})", e);
-        }
-    }
+    imap_session.logout().unwrap_or_else(|err| {
+        eprintln!("Logout failed, ignoring... ({})", err);
+    });
 }

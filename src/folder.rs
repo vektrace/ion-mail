@@ -7,14 +7,11 @@ use std::process;
 pub fn list(config: Config, stats: bool) {
     let mut imap_session = auth(config);
 
-    let mailboxes = match imap_session.list(None, Some("*")) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let mailboxes = imap_session.list(None, Some("*")).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     let mut msgs: Vec<(u32, String)> = Vec::new();
 
@@ -24,18 +21,16 @@ pub fn list(config: Config, stats: bool) {
                 .attributes()
                 .contains(&imap::types::NameAttribute::NoSelect)
             {
-                let msg_cnt = match imap_session.examine(mailbox.name()) {
-                    Ok(cnt) => cnt,
-                    Err(e) => {
-                        eprintln!(
-                            "Failed to retrieve total messages for folder {}: {}",
-                            mailbox.name(),
-                            e
-                        );
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let msg_cnt = imap_session.examine(mailbox.name()).unwrap_or_else(|err| {
+                    eprintln!(
+                        "Failed to retrieve total messages for folder {}: {}",
+                        mailbox.name(),
+                        err
+                    );
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
                 msgs.push((msg_cnt.exists, mailbox.name().to_string()));
             }
         } else {
@@ -51,34 +46,27 @@ pub fn list(config: Config, stats: bool) {
         }
     }
 
-    match imap_session.logout() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Logout failed, ignoring... ({})", e);
-        }
-    };
+    imap_session.logout().unwrap_or_else(|err| {
+        eprintln!("Logout failed, ignoring... ({})", err);
+    });
 }
 
 pub fn view(config: Config, folder: String, page_size: usize) {
     let mut imap_session = auth(config.clone());
 
-    match imap_session.select(&folder) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Failed to select folder: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    imap_session.select(&folder).unwrap_or_else(|err| {
+        eprintln!("Failed to select folder: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
-    let mails = match imap_session.fetch("1:*", "(BODY.PEEK[HEADER])") {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Failed to fetch messages: {}", e);
+    let mails = imap_session
+        .fetch("1:*", "(BODY.PEEK[HEADER])")
+        .unwrap_or_else(|err| {
+            eprintln!("Failed to fetch messages: {}", err);
             keyring_core::unset_default_store();
             process::exit(1);
-        }
-    };
+        });
 
     let mut current_id = 0;
 
@@ -86,14 +74,12 @@ pub fn view(config: Config, folder: String, page_size: usize) {
 
     for mail in mails.iter().rev() {
         if let Some(header_bytes) = mail.header() {
-            let (parsed_headers, _) = match mailparse::parse_headers(header_bytes) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Failed to parse headers: {}", e);
+            let (parsed_headers, _) =
+                mailparse::parse_headers(header_bytes).unwrap_or_else(|err| {
+                    eprintln!("Failed to parse headers: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
 
             let mut subject = String::new();
             let mut from = String::new();
@@ -111,14 +97,13 @@ pub fn view(config: Config, folder: String, page_size: usize) {
                 }
             }
 
-            let parsed_date = match DateTime::parse_from_rfc2822(&date) {
-                Ok(p) => p.with_timezone(&Local),
-                Err(e) => {
-                    eprintln!("Failed to parse date: {}", e);
+            let parsed_date = DateTime::parse_from_rfc2822(&date)
+                .unwrap_or_else(|err| {
+                    eprintln!("Failed to parse date: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                })
+                .with_timezone(&Local);
 
             messages.push(format!(
                 "[{:03}] {} | {} | {}",
@@ -132,12 +117,9 @@ pub fn view(config: Config, folder: String, page_size: usize) {
         }
     }
 
-    match imap_session.logout() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Logout failed, ignoring... ({})", e);
-        }
-    };
+    imap_session.logout().unwrap_or_else(|err| {
+        eprintln!("Logout failed, ignoring... ({})", err);
+    });
 
     if !messages.is_empty() {
         let selection = Select::with_theme(&ColorfulTheme::default())
@@ -149,14 +131,12 @@ pub fn view(config: Config, folder: String, page_size: usize) {
             .unwrap();
 
         if let Some(selection) = selection {
-            let s = match selection.try_into() {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
+            let s = selection.try_into().unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
             read(config, folder, s);
         }
     } else {
@@ -167,14 +147,11 @@ pub fn view(config: Config, folder: String, page_size: usize) {
 pub fn create(config: Config, name: String, parents: bool) {
     let mut imap_session = auth(config);
 
-    let mailboxes = match imap_session.list(None, Some("*")) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let mailboxes = imap_session.list(None, Some("*")).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     let delimiter = mailboxes[0].delimiter().unwrap();
 
@@ -202,12 +179,9 @@ pub fn create(config: Config, name: String, parents: bool) {
         }
     }
 
-    match imap_session.logout() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Logout failed, ignoring... ({})", e);
-        }
-    }
+    imap_session.logout().unwrap_or_else(|err| {
+        eprintln!("Logout failed, ignoring... ({})", err);
+    });
 }
 
 pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
@@ -228,14 +202,11 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
 
         if confirmation {
             if recursive {
-                let mailboxes = match imap_session.list(None, Some("*")) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let mailboxes = imap_session.list(None, Some("*")).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
 
                 let mut del_mailboxes = Vec::new();
 
@@ -273,12 +244,9 @@ pub fn delete(config: Config, names: Vec<String>, recursive: bool, yes: bool) {
         }
     }
 
-    match imap_session.logout() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Logout failed, ignoring... ({})", e);
-        }
-    }
+    imap_session.logout().unwrap_or_else(|err| {
+        eprintln!("Logout failed, ignoring... ({})", err);
+    });
 }
 
 pub fn empty(config: Config, name: String) {
@@ -292,58 +260,45 @@ pub fn empty(config: Config, name: String) {
     {
         let mut imap_session = auth(config);
 
-        match imap_session.select(&name) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Failed to select folder: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        }
+        imap_session.select(&name).unwrap_or_else(|err| {
+            eprintln!("Failed to select folder: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
-        let search_results = match imap_session.uid_search("ALL") {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let search_results = imap_session.uid_search("ALL").unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
 
         if !search_results.is_empty() {
             let uid_list: Vec<String> = search_results.iter().map(|id| id.to_string()).collect();
             let uid_set = uid_list.join(",");
 
-            match imap_session.uid_store(&uid_set, "FLAGS (\\Deleted)") {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
+            imap_session
+                .uid_store(&uid_set, "FLAGS (\\Deleted)")
+                .unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            }
+                });
 
             // store doesnt work on some servers
 
-            match imap_session.expunge() {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            }
+            imap_session.expunge().unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
             println!("Folder {} emptied", name);
         } else {
             println!("Folder {} is already empty", name);
         }
 
-        match imap_session.logout() {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Logout failed, ignoring... ({})", e);
-            }
-        }
+        imap_session.logout().unwrap_or_else(|err| {
+            eprintln!("Logout failed, ignoring... ({})", err);
+        });
     }
 }

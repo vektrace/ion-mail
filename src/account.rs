@@ -68,122 +68,93 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
         process::exit(0);
     }
 
-    let entry = match Entry::new(APP_NAME, &use_account.id.to_string()) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
-    let mut password = match entry.get_password() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to get password: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let entry = Entry::new(APP_NAME, &use_account.id.to_string()).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+    let mut password = entry.get_password().unwrap_or_else(|err| {
+        eprintln!("Failed to get password: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     password = if let Some(token_expiration) = use_account.token_expiration {
-        let stored_date = match DateTime::parse_from_rfc3339(&token_expiration) {
-            Ok(d) => d.with_timezone(&Utc),
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+        let stored_date = DateTime::parse_from_rfc3339(&token_expiration)
+            .unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
+            })
+            .with_timezone(&Utc);
 
         let today = Utc::now();
 
         if today >= stored_date {
             // relogin
-            let client_id_entry = match Entry::new(APP_NAME, &format!("{}.id", &use_account.id)) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
+            let client_id_entry = Entry::new(APP_NAME, &format!("{}.id", &use_account.id))
+                .unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
-            let client_id = match client_id_entry.get_password() {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Failed to get Client Id: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
+                });
+            let client_id = client_id_entry.get_password().unwrap_or_else(|err| {
+                eprintln!("Failed to get Client Id: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
             let domain = use_account.email.split("@").collect::<Vec<&str>>()[1];
-            let config_entry = match reqwest::blocking::get(format!(
+            let config_entry = reqwest::blocking::get(format!(
                 "https://raw.githubusercontent.com/Paulprojects8711/ion-mail-config/refs/heads/main/providers/{}.toml",
                 domain
-            )) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Failed to get provider list: {}", e);
+            )).unwrap_or_else(|err| {
+                    eprintln!("Failed to get provider list: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
             let mail_config: MailConfig = if config_entry.status().is_success() {
-                let config_text = match config_entry.text() {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
-                match toml::from_str(&config_text) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                }
+                let config_text = config_entry.text().unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+                toml::from_str(&config_text).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                })
             } else {
                 eprintln!("Failed to get provider list");
                 keyring_core::unset_default_store();
                 process::exit(1);
             };
             let refresh_token_entry =
-                match Entry::new(APP_NAME, &format!("{}.refresh_token", use_account.id)) {
-                    Ok(e) => e,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
+                Entry::new(APP_NAME, &format!("{}.refresh_token", use_account.id)).unwrap_or_else(
+                    |err| {
+                        eprintln!("Unexpected Error: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    },
+                );
+
             let refresh_token: Option<String> = refresh_token_entry.get_password().ok();
-            let response = match reqwest::blocking::get(&mail_config.oidc) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Failed to get OIDC Discovery Endpoints: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
-            let response_text = match response.text() {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
-            let endpoints: Endpoints = match serde_json::from_str(&response_text) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
+            let response = reqwest::blocking::get(&mail_config.oidc).unwrap_or_else(|err| {
+                eprintln!("Failed to get OIDC Discovery Endpoints: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
+            let response_text = response.text().unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+            let endpoints: Endpoints = serde_json::from_str(&response_text).unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
 
             let client = BasicClient::new(ClientId::new(client_id))
                 .set_auth_uri(AuthUrl::new(endpoints.authorization_endpoint).unwrap())
@@ -203,14 +174,12 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                         details = details.add_scope(Scope::new(scope.to_string()));
                     }
                 }
-                let token_result = match details.request(&http_client) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let token_result = details.request(&http_client).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
                 if let Some(expires_in) = token_result.expires_in() {
                     let expire_date = (today + expires_in).to_rfc3339();
                     use_account.token_expiration = Some(expire_date);
@@ -220,54 +189,45 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                     for acc in &config.accounts {
                         _config.accounts.push(acc.clone());
                     }
-                    let toml_output = match toml::to_string(&_config) {
-                        Ok(toml) => toml,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                    let toml_p = dirs::home_dir().ok_or_else(|| {
-                        eprintln!("Could not find home directory");
+                    let toml_output = toml::to_string(&_config).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     });
 
-                    let mut toml_path_unwrap = toml_p.unwrap();
-
-                    toml_path_unwrap.push(".ion-mail");
-
-                    toml_path_unwrap.push("config.toml");
-
-                    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
-                    match fs::write(toml_path, toml_output) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Error when saving new config: {}", e);
-                            keyring_core::unset_default_store();
+                    let toml_p = dirs::config_local_dir()
+                        .unwrap_or_else(|| {
+                            eprintln!("Could not find config directory");
                             process::exit(1);
-                        }
-                    }
-                }
-                if let Some(refresh_token) = token_result.refresh_token() {
-                    match refresh_token_entry.set_password(refresh_token.secret()) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Failed to set password: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                }
-                // save password
-                match entry.set_password(token_result.access_token().secret()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Failed to set password: {}", e);
+                        })
+                        .join("ion-mail")
+                        .join("config.toml");
+
+                    let toml_path: &str = toml_p.to_str().unwrap();
+                    fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+                        eprintln!("Error when saving new config: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    });
+                }
+                if let Some(refresh_token) = token_result.refresh_token() {
+                    refresh_token_entry
+                        .set_password(refresh_token.secret())
+                        .unwrap_or_else(|err| {
+                            eprintln!("Failed to set password: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+                }
+                // save password
+                entry
+                    .set_password(token_result.access_token().secret())
+                    .unwrap_or_else(|err| {
+                        eprintln!("Failed to set password: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
                 token_result.access_token().clone().into_secret()
             } else {
                 let mut details = client.exchange_device_code();
@@ -278,14 +238,11 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                     }
                 }
                 let final_details: StandardDeviceAuthorizationResponse =
-                    match details.request(&http_client) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
+                    details.request(&http_client).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
 
                 println!(
                     "To authenticate, open this URL in your browser:\n{}\nand enter the code: {}",
@@ -293,17 +250,15 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                     final_details.user_code().secret()
                 );
 
-                let token_result = match client
+                let token_result = client
                     .exchange_device_access_token(&final_details)
                     .request(&http_client, std::thread::sleep, None)
-                {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
+                    .unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    });
+
                 if let Some(expires_in) = token_result.expires_in() {
                     let expire_date = (today + expires_in).to_rfc3339();
                     use_account.token_expiration = Some(expire_date);
@@ -317,54 +272,45 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
                             _config.accounts.push(use_account.clone());
                         }
                     }
-                    let toml_output = match toml::to_string(&_config) {
-                        Ok(toml) => toml,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                    let toml_p = dirs::home_dir().ok_or_else(|| {
-                        eprintln!("Could not find home directory");
+                    let toml_output = toml::to_string(&_config).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
                         process::exit(1);
                     });
 
-                    let mut toml_path_unwrap = toml_p.unwrap();
-
-                    toml_path_unwrap.push(".ion-mail");
-
-                    toml_path_unwrap.push("config.toml");
-
-                    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
-                    match fs::write(toml_path, toml_output) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Error when saving new config: {}", e);
-                            keyring_core::unset_default_store();
+                    let toml_p = dirs::config_local_dir()
+                        .unwrap_or_else(|| {
+                            eprintln!("Could not find config directory");
                             process::exit(1);
-                        }
-                    }
-                }
-                if let Some(refresh_token) = token_result.refresh_token() {
-                    match refresh_token_entry.set_password(refresh_token.secret()) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Failed to set password: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                }
-                // save password
-                match entry.set_password(token_result.access_token().secret()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Failed to set password: {}", e);
+                        })
+                        .join("ion-mail")
+                        .join("config.toml");
+
+                    let toml_path: &str = toml_p.to_str().unwrap();
+                    fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+                        eprintln!("Error when saving new config: {}", err);
                         keyring_core::unset_default_store();
                         process::exit(1);
-                    }
-                };
+                    });
+                }
+                if let Some(refresh_token) = token_result.refresh_token() {
+                    refresh_token_entry
+                        .set_password(refresh_token.secret())
+                        .unwrap_or_else(|err| {
+                            eprintln!("Failed to set password: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+                }
+                // save password
+                entry
+                    .set_password(token_result.access_token().secret())
+                    .unwrap_or_else(|err| {
+                        eprintln!("Failed to set password: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
                 token_result.access_token().clone().into_secret()
             }
         } else {
@@ -377,31 +323,27 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
     let tls = native_tls::TlsConnector::builder().build().unwrap();
 
     let client = if use_account.imap.security == "SSL" || use_account.imap.security == "TLS" {
-        match imap::connect(
+        imap::connect(
             (use_account.imap.host.clone(), use_account.imap.port),
             &use_account.imap.host,
             &tls,
-        ) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to connect via SSL/TLS: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        }
+        )
+        .unwrap_or_else(|err| {
+            eprintln!("Failed to connect via SSL/TLS: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        })
     } else if use_account.imap.security == "STARTTLS" {
-        match imap::connect_starttls(
+        imap::connect_starttls(
             (use_account.imap.host.clone(), use_account.imap.port),
             &use_account.imap.host,
             &tls,
-        ) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to connect via STARTTLS: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        }
+        )
+        .unwrap_or_else(|err| {
+            eprintln!("Failed to connect via STARTTLS: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        })
     } else {
         eprintln!("Security type not recognized");
         keyring_core::unset_default_store();
@@ -414,23 +356,21 @@ pub fn auth(config: Config) -> imap::Session<native_tls::TlsStream<std::net::Tcp
             access_token: password,
         };
 
-        match client.authenticate("XOAUTH2", &auth) {
-            Ok(s) => s,
-            Err((e, _orig_client)) => {
-                eprintln!("Login failed: {}", e);
+        client
+            .authenticate("XOAUTH2", &auth)
+            .unwrap_or_else(|(err, _orig_client)| {
+                eprintln!("Login failed: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        }
+            })
     } else {
-        match client.login(use_account.email, password) {
-            Ok(s) => s,
-            Err((e, _orig_client)) => {
-                eprintln!("Login failed: {}", e);
+        client
+            .login(use_account.email, password)
+            .unwrap_or_else(|(err, _orig_client)| {
+                eprintln!("Login failed: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        }
+            })
     }
 }
 
@@ -457,36 +397,30 @@ pub fn add(toml_path: &str, old_config: Config) {
 
     let domain = mail.split("@").collect::<Vec<&str>>()[1];
 
-    let config_entry = match reqwest::blocking::get(format!(
+    let config_entry = reqwest::blocking::get(format!(
         "https://raw.githubusercontent.com/Paulprojects8711/ion-mail-config/refs/heads/main/providers/{}.toml",
         domain
-    )) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Failed to get provider list: {}", e);
+    )).unwrap_or_else(|err| {
+            eprintln!("Failed to get provider list: {}", err);
             keyring_core::unset_default_store();
             process::exit(1);
-        }
-    };
+        });
+
     let mut refresh_token = None;
     let mut token_expiration: Option<String> = None;
     let (mut new_account, client_id, password) = if config_entry.status().is_success() {
-        let config_text = match config_entry.text() {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
-        let mail_config: MailConfig = match toml::from_str(&config_text) {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let config_text = config_entry.text().unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
+
+        let mail_config: MailConfig = toml::from_str(&config_text).unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
+
         let smtp_host = mail_config.smtp.host;
         let smtp_port = mail_config.smtp.port;
         let smtp_security = mail_config.smtp.security;
@@ -501,30 +435,24 @@ pub fn add(toml_path: &str, old_config: Config) {
             .unwrap();
         let final_client_id = Some(client_id.clone());
 
-        let response = match reqwest::blocking::get(&mail_config.oidc) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("Failed to get OIDC Discovery Endpoints: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
-        let response_text = match response.text() {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
-        let endpoints: Endpoints = match serde_json::from_str(&response_text) {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                keyring_core::unset_default_store();
-                process::exit(1);
-            }
-        };
+        let response = reqwest::blocking::get(&mail_config.oidc).unwrap_or_else(|err| {
+            eprintln!("Failed to get OIDC Discovery Endpoints: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
+
+        let response_text = response.text().unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
+
+        let endpoints: Endpoints = serde_json::from_str(&response_text).unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            keyring_core::unset_default_store();
+            process::exit(1);
+        });
+
         let client = BasicClient::new(ClientId::new(client_id))
             .set_auth_uri(AuthUrl::new(endpoints.authorization_endpoint).unwrap())
             .set_token_uri(TokenUrl::new(endpoints.token_endpoint).unwrap())
@@ -540,15 +468,12 @@ pub fn add(toml_path: &str, old_config: Config) {
         for scope in &scopes {
             details = details.add_scope(Scope::new(scope.to_string()));
         }
-        let final_details: StandardDeviceAuthorizationResponse = match details.request(&http_client)
-        {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+        let final_details: StandardDeviceAuthorizationResponse =
+            details.request(&http_client).unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
+            });
 
         println!(
             "To authenticate, open this URL in your browser:\n{}\nand enter the code: {}",
@@ -556,18 +481,15 @@ pub fn add(toml_path: &str, old_config: Config) {
             final_details.user_code().secret()
         );
 
-        let token_result = match client.exchange_device_access_token(&final_details).request(
-            &http_client,
-            std::thread::sleep,
-            None,
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+        let token_result = client
+            .exchange_device_access_token(&final_details)
+            .request(&http_client, std::thread::sleep, None)
+            .unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
+            });
+
         if let Some(expires_in) = token_result.expires_in() {
             let expire_date = (Utc::now() + expires_in).to_rfc3339();
             token_expiration = Some(expire_date);
@@ -744,27 +666,19 @@ pub fn add(toml_path: &str, old_config: Config) {
                     let tls = native_tls::TlsConnector::builder().build().unwrap();
 
                     let client = if imap_security == "SSL" || imap_security == "TLS" {
-                        match imap::connect((imap_host.clone(), imap_port), &imap_host, &tls) {
-                            Ok(c) => c,
-                            Err(e) => {
-                                eprintln!("Failed to connect via SSL/TLS: {}", e);
+                        imap::connect((imap_host.clone(), imap_port), &imap_host, &tls)
+                            .unwrap_or_else(|err| {
+                                eprintln!("Failed to connect via SSL/TLS: {}", err);
                                 keyring_core::unset_default_store();
                                 process::exit(1);
-                            }
-                        }
+                            })
                     } else if imap_security == "STARTTLS" {
-                        match imap::connect_starttls(
-                            (imap_host.clone(), imap_port),
-                            &imap_host,
-                            &tls,
-                        ) {
-                            Ok(c) => c,
-                            Err(e) => {
-                                eprintln!("Failed to connect via STARTTLS: {}", e);
+                        imap::connect_starttls((imap_host.clone(), imap_port), &imap_host, &tls)
+                            .unwrap_or_else(|err| {
+                                eprintln!("Failed to connect via STARTTLS: {}", err);
                                 keyring_core::unset_default_store();
                                 process::exit(1);
-                            }
-                        }
+                            })
                     } else {
                         eprintln!("Security type not recognized");
                         keyring_core::unset_default_store();
@@ -780,63 +694,50 @@ pub fn add(toml_path: &str, old_config: Config) {
                 .unwrap()
         } else {
             let client_id = client_id.clone().expect("Client ID should exist");
-            let config_entry = match reqwest::blocking::get(format!(
+            let config_entry = reqwest::blocking::get(format!(
                 "https://raw.githubusercontent.com/Paulprojects8711/ion-mail-config/refs/heads/main/providers/{}.toml",
                 domain
-            )) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Failed to get provider list: {}", e);
+            )).unwrap_or_else(|err| {
+                    eprintln!("Failed to get provider list: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
+
             let mail_config: MailConfig = if config_entry.status().is_success() {
-                let config_text = match config_entry.text() {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
-                match toml::from_str(&config_text) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                }
+                let config_text = config_entry.text().unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
+                toml::from_str(&config_text).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                })
             } else {
                 eprintln!("Failed to get provider list");
                 keyring_core::unset_default_store();
                 process::exit(1);
             };
-            let response = match reqwest::blocking::get(&mail_config.oidc) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Failed to get OIDC Discovery Endpoints: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
-            let response_text = match response.text() {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
-            let endpoints: Endpoints = match serde_json::from_str(&response_text) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
+            let response = reqwest::blocking::get(&mail_config.oidc).unwrap_or_else(|err| {
+                eprintln!("Failed to get OIDC Discovery Endpoints: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
+            let response_text = response.text().unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
+            let endpoints: Endpoints = serde_json::from_str(&response_text).unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
             let client = BasicClient::new(ClientId::new(client_id))
                 .set_auth_uri(AuthUrl::new(endpoints.authorization_endpoint).unwrap())
                 .set_token_uri(TokenUrl::new(endpoints.token_endpoint).unwrap())
@@ -856,14 +757,11 @@ pub fn add(toml_path: &str, old_config: Config) {
                 }
             }
             let final_details: StandardDeviceAuthorizationResponse =
-                match details.request(&http_client) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                details.request(&http_client).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
 
             println!(
                 "To authenticate, open this URL in your browser:\n{}\nand enter the code: {}",
@@ -871,18 +769,15 @@ pub fn add(toml_path: &str, old_config: Config) {
                 final_details.user_code().secret()
             );
 
-            let token_result = match client.exchange_device_access_token(&final_details).request(
-                &http_client,
-                std::thread::sleep,
-                None,
-            ) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
+            let token_result = client
+                .exchange_device_access_token(&final_details)
+                .request(&http_client, std::thread::sleep, None)
+                .unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
                     keyring_core::unset_default_store();
                     process::exit(1);
-                }
-            };
+                });
+
             if Confirm::with_theme(&ColorfulTheme::default())
                 .with_prompt("Entry does not yet exist in database. Do you want to add it?")
                 .default(true)
@@ -997,75 +892,61 @@ pub fn add(toml_path: &str, old_config: Config) {
 
     _config.accounts.push(new_account);
 
-    let toml_output = match toml::to_string(&_config) {
-        Ok(toml) => toml,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
-    match fs::write(toml_path, toml_output) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Error when saving new config: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    let toml_output = toml::to_string(&_config).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
-    let entry = match Entry::new(APP_NAME, &new_id.to_string()) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
-    match entry.set_password(&password) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Failed to set password: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+        eprintln!("Error when saving new config: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
+    let entry = Entry::new(APP_NAME, &new_id.to_string()).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
+    entry.set_password(&password).unwrap_or_else(|err| {
+        eprintln!("Failed to set password: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
     if let Some(refresh_token) = refresh_token {
-        let refresh_token_entry = match Entry::new(APP_NAME, &format!("{}.refresh_token", &new_id))
-        {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+        let refresh_token_entry = Entry::new(APP_NAME, &format!("{}.refresh_token", &new_id))
+            .unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
-        match refresh_token_entry.set_password(&refresh_token) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Failed to set password: {}", e);
+            });
+
+        refresh_token_entry
+            .set_password(&refresh_token)
+            .unwrap_or_else(|err| {
+                eprintln!("Failed to set password: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
+            });
     }
     if let Some(client_id) = client_id {
-        let client_id_entry = match Entry::new(APP_NAME, &format!("{}.id", &new_id)) {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
+        let client_id_entry =
+            Entry::new(APP_NAME, &format!("{}.id", &new_id)).unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        };
-        match client_id_entry.set_password(&client_id) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to get Client Id: {}", e);
+            });
+
+        client_id_entry
+            .set_password(&client_id)
+            .unwrap_or_else(|err| {
+                eprintln!("Failed to get Client Id: {}", err);
                 keyring_core::unset_default_store();
                 process::exit(1);
-            }
-        }
+            });
     }
 }
 
@@ -1127,22 +1008,17 @@ pub fn switch(toml_path: &str, config: Config, account: String) {
             process::exit(1);
         }
     }
-    let toml_output = match toml::to_string(&_config) {
-        Ok(toml) => toml,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
-    match fs::write(toml_path, toml_output) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Error when saving new config: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    }
+    let toml_output = toml::to_string(&_config).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
+    fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+        eprintln!("Error when saving new config: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     println!("Successfully switched to account {}", account);
 }
@@ -1260,22 +1136,17 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
         }
     }
 
-    let entry = match Entry::new(APP_NAME, &account_edit.id.to_string()) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("Unexpected Error: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
-    let mut password = match entry.get_password() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to get password: {}", e);
-            keyring_core::unset_default_store();
-            process::exit(1);
-        }
-    };
+    let entry = Entry::new(APP_NAME, &account_edit.id.to_string()).unwrap_or_else(|err| {
+        eprintln!("Unexpected Error: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
+
+    let mut password = entry.get_password().unwrap_or_else(|err| {
+        eprintln!("Failed to get password: {}", err);
+        keyring_core::unset_default_store();
+        process::exit(1);
+    });
 
     let security = vec!["SSL".to_string(), "STARTTLS".to_string()];
     let mut refresh_token: Option<String> = None;
@@ -1314,31 +1185,27 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                             let client = if account_edit.imap.security == "SSL"
                                 || account_edit.imap.security == "TLS"
                             {
-                                match imap::connect(
+                                imap::connect(
                                     (account_edit.imap.host.clone(), account_edit.imap.port),
                                     &account_edit.imap.host,
                                     &tls,
-                                ) {
-                                    Ok(c) => c,
-                                    Err(e) => {
-                                        eprintln!("Failed to connect via SSL/TLS: {}", e);
-                                        keyring_core::unset_default_store();
-                                        process::exit(1);
-                                    }
-                                }
+                                )
+                                .unwrap_or_else(|err| {
+                                    eprintln!("Failed to connect via SSL/TLS: {}", err);
+                                    keyring_core::unset_default_store();
+                                    process::exit(1);
+                                })
                             } else if account_edit.imap.security == "STARTTLS" {
-                                match imap::connect_starttls(
+                                imap::connect_starttls(
                                     (account_edit.imap.host.clone(), account_edit.imap.port),
                                     &account_edit.imap.host,
                                     &tls,
-                                ) {
-                                    Ok(c) => c,
-                                    Err(e) => {
-                                        eprintln!("Failed to connect via STARTTLS: {}", e);
-                                        keyring_core::unset_default_store();
-                                        process::exit(1);
-                                    }
-                                }
+                                )
+                                .unwrap_or_else(|err| {
+                                    eprintln!("Failed to connect via STARTTLS: {}", err);
+                                    keyring_core::unset_default_store();
+                                    process::exit(1);
+                                })
                             } else {
                                 eprintln!("Security type not recognized");
                                 keyring_core::unset_default_store();
@@ -1354,80 +1221,65 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                         .unwrap()
                 } else {
                     let domain = account_edit.email.split("@").collect::<Vec<&str>>()[1];
-                    let client_id_entry =
-                        match Entry::new(APP_NAME, &format!("{}.id", &account_edit.id)) {
-                            Ok(e) => e,
-                            Err(e) => {
-                                eprintln!("Unexpected Error: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        };
-                    let client_id = match client_id_entry.get_password() {
-                        Ok(c) => c,
-                        Err(e) => {
-                            eprintln!("Failed to get Client Id: {}", e);
+                    let client_id_entry = Entry::new(APP_NAME, &format!("{}.id", &account_edit.id))
+                        .unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    };
-                    let config_entry = match reqwest::blocking::get(format!(
+                        });
+
+                    let client_id = client_id_entry.get_password().unwrap_or_else(|err| {
+                        eprintln!("Failed to get Client Id: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
+                    let config_entry = reqwest::blocking::get(format!(
                         "https://raw.githubusercontent.com/Paulprojects8711/ion-mail-config/refs/heads/main/providers/{}.toml",
                         domain
-                    )) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            eprintln!("Failed to get provider list: {}", e);
+                    )).unwrap_or_else(|err| {
+                            eprintln!("Failed to get provider list: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    };
+                        });
+
                     let mail_config: MailConfig = if config_entry.status().is_success() {
-                        let config_text = match config_entry.text() {
-                            Ok(t) => t,
-                            Err(e) => {
-                                eprintln!("Unexpected Error: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        };
-                        match toml::from_str(&config_text) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                eprintln!("Unexpected Error: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        }
+                        let config_text = config_entry.text().unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+
+                        toml::from_str(&config_text).unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        })
                     } else {
                         eprintln!("Failed to get provider list");
                         keyring_core::unset_default_store();
                         process::exit(1);
                     };
-                    let response = match reqwest::blocking::get(&mail_config.oidc) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            eprintln!("Failed to get OIDC Discovery Endpoints: {}", e);
+                    let response =
+                        reqwest::blocking::get(&mail_config.oidc).unwrap_or_else(|err| {
+                            eprintln!("Failed to get OIDC Discovery Endpoints: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    };
-                    let response_text = match response.text() {
-                        Ok(t) => t,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
+                        });
+
+                    let response_text = response.text().unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
+                    let endpoints: Endpoints =
+                        serde_json::from_str(&response_text).unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    };
-                    let endpoints: Endpoints = match serde_json::from_str(&response_text) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
+                        });
+
                     let client = BasicClient::new(ClientId::new(client_id))
                         .set_auth_uri(AuthUrl::new(endpoints.authorization_endpoint).unwrap())
                         .set_token_uri(TokenUrl::new(endpoints.token_endpoint).unwrap())
@@ -1448,14 +1300,11 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                         }
                     }
                     let final_details: StandardDeviceAuthorizationResponse =
-                        match details.request(&http_client) {
-                            Ok(d) => d,
-                            Err(e) => {
-                                eprintln!("Unexpected Error: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        };
+                        details.request(&http_client).unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
 
                     println!(
                         "To authenticate, open this URL in your browser:\n{}\nand enter the code: {}",
@@ -1463,17 +1312,15 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
                         final_details.user_code().secret()
                     );
 
-                    let token_result = match client
+                    let token_result = client
                         .exchange_device_access_token(&final_details)
                         .request(&http_client, std::thread::sleep, None)
-                    {
-                        Ok(t) => t,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
+                        .unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    };
+                        });
+
                     if let Some(expires_in) = token_result.expires_in() {
                         let expire_date = (Utc::now() + expires_in).to_rfc3339();
                         account_edit.token_expiration = Some(expire_date);
@@ -1578,101 +1425,79 @@ pub fn edit(toml_path: &str, old_config: Config, account: Option<String>) {
             }
             4 => {
                 config.accounts.push(account_edit.clone());
-                let toml_output = match toml::to_string(&config) {
-                    Ok(toml) => toml,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
-                match fs::write(toml_path, toml_output) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Error when saving new config: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let toml_output = toml::to_string(&config).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
 
-                match entry.set_password(password.as_str()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Failed to set password: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                }
+                fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+                    eprintln!("Error when saving new config: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
+                entry.set_password(password.as_str()).unwrap_or_else(|err| {
+                    eprintln!("Failed to set password: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
                 if let Some(refresh_token) = refresh_token {
-                    let refresh_token_entry = match Entry::new(
-                        APP_NAME,
-                        &format!("{}.refresh_token", &account_edit.id),
-                    ) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
+                    let refresh_token_entry =
+                        Entry::new(APP_NAME, &format!("{}.refresh_token", &account_edit.id))
+                            .unwrap_or_else(|err| {
+                                eprintln!("Unexpected Error: {}", err);
+                                keyring_core::unset_default_store();
+                                process::exit(1);
+                            });
+
+                    refresh_token_entry
+                        .set_password(&refresh_token)
+                        .unwrap_or_else(|err| {
+                            eprintln!("Failed to set password: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    };
-                    match refresh_token_entry.set_password(&refresh_token) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Failed to set password: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
+                        });
                 }
                 break;
             }
             5 => {
                 config.accounts.push(account_edit.clone());
-                let toml_output = match toml::to_string(&config) {
-                    Ok(toml) => toml,
-                    Err(e) => {
-                        eprintln!("Unexpected Error: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
-                match fs::write(toml_path, toml_output) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Error when saving new config: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                };
+                let toml_output = toml::to_string(&config).unwrap_or_else(|err| {
+                    eprintln!("Unexpected Error: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
 
-                match entry.set_password(password.as_str()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Failed to set password: {}", e);
-                        keyring_core::unset_default_store();
-                        process::exit(1);
-                    }
-                }
+                fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+                    eprintln!("Error when saving new config: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
+                entry.set_password(password.as_str()).unwrap_or_else(|err| {
+                    eprintln!("Failed to set password: {}", err);
+                    keyring_core::unset_default_store();
+                    process::exit(1);
+                });
+
                 if let Some(ref refresh_token) = refresh_token {
-                    let refresh_token_entry = match Entry::new(
-                        APP_NAME,
-                        &format!("{}.refresh_token", &account_edit.id),
-                    ) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
+                    let refresh_token_entry =
+                        Entry::new(APP_NAME, &format!("{}.refresh_token", &account_edit.id))
+                            .unwrap_or_else(|err| {
+                                eprintln!("Unexpected Error: {}", err);
+                                keyring_core::unset_default_store();
+                                process::exit(1);
+                            });
+
+                    refresh_token_entry
+                        .set_password(refresh_token)
+                        .unwrap_or_else(|err| {
+                            eprintln!("Failed to set password: {}", err);
                             keyring_core::unset_default_store();
                             process::exit(1);
-                        }
-                    };
-                    match refresh_token_entry.set_password(refresh_token) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Failed to set password: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
+                        });
                 }
             }
             _ => {
@@ -1710,49 +1535,40 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                 for acc in old_config.accounts {
                     if acc.id == id {
                         found = true;
-                        let entry = match Entry::new(APP_NAME, &id.to_string()) {
-                            Ok(e) => e,
-                            Err(e) => {
-                                eprintln!("Unexpected Error: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        };
-                        match entry.delete_credential() {
-                            Ok(_) => {}
-                            Err(e) => {
-                                eprintln!("Error when deleting credential: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        }
+                        let entry = Entry::new(APP_NAME, &id.to_string()).unwrap_or_else(|err| {
+                            eprintln!("Unexpected Error: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+
+                        entry.delete_credential().unwrap_or_else(|err| {
+                            eprintln!("Error when deleting credential: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+
                         if acc.oidc.is_some() {
-                            let client_id_entry = match Entry::new(APP_NAME, &format!("{}.id", &id))
-                            {
-                                Ok(e) => e,
-                                Err(e) => {
-                                    eprintln!("Unexpected Error: {}", e);
+                            let client_id_entry = Entry::new(APP_NAME, &format!("{}.id", &id))
+                                .unwrap_or_else(|err| {
+                                    eprintln!("Unexpected Error: {}", err);
                                     keyring_core::unset_default_store();
                                     process::exit(1);
-                                }
-                            };
-                            match client_id_entry.delete_credential() {
-                                Ok(c) => c,
-                                Err(e) => {
-                                    eprintln!("Failed to get Client Id: {}", e);
-                                    keyring_core::unset_default_store();
-                                    process::exit(1);
-                                }
-                            };
+                                });
+
+                            client_id_entry.delete_credential().unwrap_or_else(|err| {
+                                eprintln!("Failed to get Client Id: {}", err);
+                                keyring_core::unset_default_store();
+                                process::exit(1);
+                            });
+
                             let refresh_token_entry =
-                                match Entry::new(APP_NAME, &format!("{}.refresh_token", &id)) {
-                                    Ok(e) => e,
-                                    Err(e) => {
-                                        eprintln!("Unexpected Error: {}", e);
+                                Entry::new(APP_NAME, &format!("{}.refresh_token", &id))
+                                    .unwrap_or_else(|err| {
+                                        eprintln!("Unexpected Error: {}", err);
                                         keyring_core::unset_default_store();
                                         process::exit(1);
-                                    }
-                                };
+                                    });
+
                             if refresh_token_entry.delete_credential().is_ok() {};
                         }
                     } else {
@@ -1763,49 +1579,41 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
                 for acc in old_config.accounts {
                     if acc.email == account {
                         found = true;
-                        let entry = match Entry::new(APP_NAME, &acc.id.to_string()) {
-                            Ok(e) => e,
-                            Err(e) => {
-                                eprintln!("Unexpected Error: {}", e);
+                        let entry =
+                            Entry::new(APP_NAME, &acc.id.to_string()).unwrap_or_else(|err| {
+                                eprintln!("Unexpected Error: {}", err);
                                 keyring_core::unset_default_store();
                                 process::exit(1);
-                            }
-                        };
-                        match entry.delete_credential() {
-                            Ok(_) => {}
-                            Err(e) => {
-                                eprintln!("Error when deleting credential: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        }
+                            });
+
+                        entry.delete_credential().unwrap_or_else(|err| {
+                            eprintln!("Error when deleting credential: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+
                         if acc.oidc.is_some() {
-                            let client_id_entry =
-                                match Entry::new(APP_NAME, &format!("{}.id", &acc.id)) {
-                                    Ok(e) => e,
-                                    Err(e) => {
-                                        eprintln!("Unexpected Error: {}", e);
-                                        keyring_core::unset_default_store();
-                                        process::exit(1);
-                                    }
-                                };
-                            match client_id_entry.delete_credential() {
-                                Ok(c) => c,
-                                Err(e) => {
-                                    eprintln!("Failed to delete Client Id: {}", e);
+                            let client_id_entry = Entry::new(APP_NAME, &format!("{}.id", &acc.id))
+                                .unwrap_or_else(|err| {
+                                    eprintln!("Unexpected Error: {}", err);
                                     keyring_core::unset_default_store();
                                     process::exit(1);
-                                }
-                            };
+                                });
+
+                            client_id_entry.delete_credential().unwrap_or_else(|err| {
+                                eprintln!("Failed to delete Client Id: {}", err);
+                                keyring_core::unset_default_store();
+                                process::exit(1);
+                            });
+
                             let refresh_token_entry =
-                                match Entry::new(APP_NAME, &format!("{}.refresh_token", &acc.id)) {
-                                    Ok(e) => e,
-                                    Err(e) => {
-                                        eprintln!("Unexpected Error: {}", e);
+                                Entry::new(APP_NAME, &format!("{}.refresh_token", &acc.id))
+                                    .unwrap_or_else(|err| {
+                                        eprintln!("Unexpected Error: {}", err);
                                         keyring_core::unset_default_store();
                                         process::exit(1);
-                                    }
-                                };
+                                    });
+
                             if refresh_token_entry.delete_credential().is_ok() {};
                         }
                     } else {
@@ -1820,49 +1628,40 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
             for acc in old_config.accounts {
                 if acc.active {
                     found = true;
-                    let entry = match Entry::new(APP_NAME, &acc.id.to_string()) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            eprintln!("Unexpected Error: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    };
-                    match entry.delete_credential() {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("Error when deleting credential: {}", e);
-                            keyring_core::unset_default_store();
-                            process::exit(1);
-                        }
-                    }
+                    let entry = Entry::new(APP_NAME, &acc.id.to_string()).unwrap_or_else(|err| {
+                        eprintln!("Unexpected Error: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
+                    entry.delete_credential().unwrap_or_else(|err| {
+                        eprintln!("Error when deleting credential: {}", err);
+                        keyring_core::unset_default_store();
+                        process::exit(1);
+                    });
+
                     if acc.oidc.is_some() {
-                        let client_id_entry = match Entry::new(APP_NAME, &format!("{}.id", &acc.id))
-                        {
-                            Ok(e) => e,
-                            Err(e) => {
-                                eprintln!("Unexpected Error: {}", e);
+                        let client_id_entry = Entry::new(APP_NAME, &format!("{}.id", &acc.id))
+                            .unwrap_or_else(|err| {
+                                eprintln!("Unexpected Error: {}", err);
                                 keyring_core::unset_default_store();
                                 process::exit(1);
-                            }
-                        };
-                        match client_id_entry.delete_credential() {
-                            Ok(c) => c,
-                            Err(e) => {
-                                eprintln!("Failed to get Client Id: {}", e);
-                                keyring_core::unset_default_store();
-                                process::exit(1);
-                            }
-                        };
+                            });
+
+                        client_id_entry.delete_credential().unwrap_or_else(|err| {
+                            eprintln!("Failed to get Client Id: {}", err);
+                            keyring_core::unset_default_store();
+                            process::exit(1);
+                        });
+
                         let refresh_token_entry =
-                            match Entry::new(APP_NAME, &format!("{}.refresh_token", &acc.id)) {
-                                Ok(e) => e,
-                                Err(e) => {
-                                    eprintln!("Unexpected Error: {}", e);
+                            Entry::new(APP_NAME, &format!("{}.refresh_token", &acc.id))
+                                .unwrap_or_else(|err| {
+                                    eprintln!("Unexpected Error: {}", err);
                                     keyring_core::unset_default_store();
                                     process::exit(1);
-                                }
-                            };
+                                });
+
                         if refresh_token_entry.delete_credential().is_ok() {};
                     }
                 } else {
@@ -1881,22 +1680,18 @@ pub fn logout(toml_path: &str, old_config: Config, account: Option<String>) {
         }
 
         if found {
-            let toml_output = match toml::to_string(&config) {
-                Ok(toml) => toml,
-                Err(e) => {
-                    eprintln!("Unexpected Error: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            };
-            match fs::write(toml_path, toml_output) {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Error when saving new config: {}", e);
-                    keyring_core::unset_default_store();
-                    process::exit(1);
-                }
-            }
+            let toml_output = toml::to_string(&config).unwrap_or_else(|err| {
+                eprintln!("Unexpected Error: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
+            fs::write(toml_path, toml_output).unwrap_or_else(|err| {
+                eprintln!("Error when saving new config: {}", err);
+                keyring_core::unset_default_store();
+                process::exit(1);
+            });
+
             println!("Logout successful");
         }
     }

@@ -58,70 +58,54 @@ pub struct Endpoints {
 }
 
 fn main() {
-    let toml_p = dirs::home_dir().ok_or_else(|| {
-        eprintln!("Could not find home directory");
-        process::exit(1);
-    });
+    let mut toml_p = dirs::config_local_dir()
+        .unwrap_or_else(|| {
+            eprintln!("Could not find config directory");
+            process::exit(1);
+        })
+        .join("ion-mail");
 
-    let mut toml_path_unwrap = toml_p.unwrap();
-
-    toml_path_unwrap.push(".ion-mail");
-
-    if !toml_path_unwrap.exists() {
-        match fs::create_dir_all(&toml_path_unwrap) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Failed to create directories: {}", e);
-            }
-        }
+    if !toml_p.exists() {
+        fs::create_dir_all(&toml_p).unwrap_or_else(|err| {
+            eprintln!("Failed to create directories: {}", err);
+            process::exit(1);
+        });
     }
 
-    toml_path_unwrap.push("config.toml");
+    toml_p.push("config.toml");
 
-    let toml_path: &str = toml_path_unwrap.to_str().unwrap();
+    let toml_path: &str = toml_p.to_str().unwrap();
 
     let mut config = Config {
         accounts: Vec::new(),
     };
 
-    if toml_path_unwrap.exists() {
-        let config_str = match fs::read_to_string(toml_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error when reading config: {}", e);
-                process::exit(1);
-            }
-        };
+    if toml_p.exists() {
+        let config_str = fs::read_to_string(toml_path).unwrap_or_else(|err| {
+            eprintln!("Error when reading config: {}", err);
+            process::exit(1);
+        });
 
-        config = match toml::from_str(&config_str) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error when parsing toml: {}", e);
-                process::exit(1);
-            }
-        };
+        config = toml::from_str(&config_str).unwrap_or_else(|err| {
+            eprintln!("Error when parsing toml: {}", err);
+            process::exit(1);
+        });
     }
 
     #[cfg(target_os = "windows")]
     {
-        let windows_store = match windows_native_keyring_store::Store::new() {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                process::exit(1);
-            }
-        };
+        let windows_store = windows_native_keyring_store::Store::new().unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            process::exit(1);
+        });
         keyring_core::set_default_store(windows_store);
     }
     #[cfg(target_os = "linux")]
     {
-        let zbus_store = match zbus_secret_service_keyring_store::Store::new() {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Unexpected Error: {}", e);
-                process::exit(1);
-            }
-        };
+        let zbus_store = zbus_secret_service_keyring_store::Store::new().unwrap_or_else(|err| {
+            eprintln!("Unexpected Error: {}", err);
+            process::exit(1);
+        });
         keyring_core::set_default_store(zbus_store);
     }
 

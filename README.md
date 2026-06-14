@@ -1,5 +1,5 @@
 # ion-mail
-Heavyweight CLI email client (in Rust)
+Mail CLI in Rust supporting all mail functions & OAuth2 login
 
 Please report any bugs you find, some cannot be fixed because they are server related.
 

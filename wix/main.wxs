@@ -62,7 +62,7 @@
         Id='*'
         Name='ion-mail'
         UpgradeCode='E939105E-8B38-4C78-80D6-65E9FB114071'
-        Manufacturer='Paul8711gamezz'
+        Manufacturer='Paul8711'
         Language='1033'
         Codepage='1252'
         Version='$(var.Version)'>
@@ -70,7 +70,7 @@
         <Package Id='*'
             Keywords='Installer'
             Description='A simple mail CLI'
-            Manufacturer='Paul8711gamezz'
+            Manufacturer='Paul8711'
             InstallerVersion='450'
             Languages='1033'
             Compressed='yes'
@@ -173,7 +173,7 @@
         <!--<Icon Id='ProductICO' SourceFile='wix\Product.ico'/>-->
         <!--<Property Id='ARPPRODUCTICON' Value='ProductICO' />-->
 
-        <Property Id='ARPHELPLINK' Value='https://github.com/Paulprojects8711/ion-mail'/>
+        <Property Id='ARPHELPLINK' Value='https://github.com/paul8711-code/ion-mail'/>
         
         <UI>
             <UIRef Id='WixUI_FeatureTree'/>

@@ -3,9 +3,9 @@ name = "ion-mail"
 version = "0.2.1"
 edition = "2024"
 description = "A simple mail CLI"
-authors = ["Paul8711gamezz <support@paul8711gamezz.org>"]
+authors = ["Paul8711 <support@paul8711.com>"]
 license = "AGPL-3.0-only"
-repository = "https://github.com/Paulprojects8711/ion-mail"
+repository = "https://github.com/paul8711-code/ion-mail"
 
 [package.metadata.wix]
 upgrade-guid = "E939105E-8B38-4C78-80D6-65E9FB114071"

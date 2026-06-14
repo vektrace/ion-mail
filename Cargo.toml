@@ -1,6 +1,6 @@
 [package]
 name = "ion-mail"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "A simple mail CLI"
 authors = ["Paul8711 <support@paul8711.com>"]

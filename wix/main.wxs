@@ -69,7 +69,7 @@
 
         <Package Id='*'
             Keywords='Installer'
-            Description='A simple mail CLI'
+            Description='Mail CLI in Rust supporting all mail functions &amp; OAuth2 login'
             Manufacturer='Paul8711'
             InstallerVersion='450'
             Languages='1033'

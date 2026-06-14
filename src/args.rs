@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(author, version, about = "A simple mail CLI")]
+#[command(
+    author,
+    version,
+    about = "Mail CLI in Rust supporting all mail functions & OAuth2 login"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub resource: Resource,

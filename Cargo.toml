@@ -3,9 +3,9 @@ name = "ion-mail"
 version = "0.2.4"
 edition = "2024"
 description = "Mail CLI in Rust supporting all mail functions & OAuth2 login"
-authors = ["Paul8711 <contact@paul8711.com>"]
+authors = ["Vektrace <contact@vektrace.com>"]
 license = "AGPL-3.0-only"
-repository = "https://github.com/paul8711-code/ion-mail"
+repository = "https://github.com/vektrace/ion-mail"
 
 [package.metadata.wix]
 upgrade-guid = "E939105E-8B38-4C78-80D6-65E9FB114071"
